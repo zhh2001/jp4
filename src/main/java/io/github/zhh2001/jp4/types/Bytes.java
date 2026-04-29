@@ -13,6 +13,8 @@ import java.util.Objects;
  * <p><b>Canonical form.</b> P4Runtime 1.3 requires field values to be in canonical form:
  * no leading zero bytes, but at least one byte. Use {@link #canonical()} to coerce, and
  * the {@code ofXxx} factories that produce canonical results by default.
+ *
+ * @since 0.1.0
  */
 public final class Bytes {
 

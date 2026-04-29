@@ -10,6 +10,8 @@ import java.util.Objects;
  * 128-bit IPv6 address. Always 16 bytes; constructors validate length and parse the
  * standard literal forms ({@code "2001:db8::1"}, {@code "::1"}, etc.). Defensive copy
  * semantics matching {@link Mac}.
+ *
+ * @since 0.1.0
  */
 public record Ip6(byte[] octets) {
 

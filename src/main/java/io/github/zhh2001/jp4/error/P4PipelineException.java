@@ -16,6 +16,8 @@ package io.github.zhh2001.jp4.error;
  * <p>These are usually programmer errors (mismatched p4info / .json, typos in names)
  * rather than runtime conditions. They are reported separately from
  * {@link P4OperationException} so callers can route them to a different handler.
+ *
+ * @since 0.1.0
  */
 public class P4PipelineException extends P4RuntimeException {
 

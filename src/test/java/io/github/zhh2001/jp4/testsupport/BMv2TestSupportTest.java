@@ -1,5 +1,6 @@
 package io.github.zhh2001.jp4.testsupport;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -18,6 +19,11 @@ class BMv2TestSupportTest {
 
     @BeforeAll
     static void env() {
+        // OS-pid assertions don't apply to the Docker backend (containers report pid=-1
+        // from the test JVM's perspective). The Docker mode is exercised by the
+        // integration tests, which don't depend on pid.
+        Assumptions.assumeFalse(BMv2TestSupport.isDockerMode(),
+                "BMv2TestSupportTest is native-mode only (asserts on OS pids)");
         BMv2TestSupport.checkEnvironment();
     }
 

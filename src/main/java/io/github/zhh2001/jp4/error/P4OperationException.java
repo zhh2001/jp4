@@ -15,6 +15,8 @@ import java.util.List;
  *       original index in the batch; empty for read failures and for whole-RPC errors
  *       (which surface as {@link P4ConnectionException} instead).</li>
  * </ul>
+ *
+ * @since 0.1.0
  */
 public class P4OperationException extends P4RuntimeException {
 

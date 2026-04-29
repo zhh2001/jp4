@@ -22,6 +22,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * Intermediate stage between {@link P4Switch#connect(String)} and one of the terminals
+ * {@link #asPrimary()} / {@link #asSecondary()}. Each setter returns {@code this} so
+ * the chain reads as one expression. Defaults: {@code deviceId=0}, {@code electionId=1},
+ * {@link ReconnectPolicy#noRetry()}, packet-in queue capacity 1024.
+ *
+ * @since 0.1.0
+ */
 public final class Connector {
 
     private static final AtomicLong SWITCH_SEQ = new AtomicLong();

@@ -5,6 +5,8 @@ import io.github.zhh2001.jp4.types.ElectionId;
 /**
  * Snapshot of mastership state delivered to {@code onMastershipChange} listeners.
  * Sealed; pattern-match on the variant for compile-time exhaustive handling.
+ *
+ * @since 0.1.0
  */
 public sealed interface MastershipStatus permits MastershipStatus.Acquired, MastershipStatus.Lost {
 

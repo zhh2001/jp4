@@ -9,6 +9,8 @@ import io.github.zhh2001.jp4.types.ElectionId;
  * <p>{@link #ourElectionId()} is the id we presented; {@link #currentPrimaryElectionId()}
  * is the id reported by the device as the current primary (may be {@code null} if the
  * server did not include it).
+ *
+ * @since 0.1.0
  */
 public final class P4ArbitrationLost extends P4ConnectionException {
 

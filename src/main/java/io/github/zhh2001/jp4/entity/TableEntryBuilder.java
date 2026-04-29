@@ -16,6 +16,11 @@ import io.github.zhh2001.jp4.types.Mac;
  * {@link ActionBuilder}) so the API compiles and chains correctly, but
  * {@link #build()} throws {@link UnsupportedOperationException}. Full P4Info-driven
  * validation lands in Phase 5.
+ *
+ * @implNote Implementation pending; {@link #build()} throws {@link
+ *           UnsupportedOperationException} until Phase 6.
+ *
+ * @since 0.1.0
  */
 public final class TableEntryBuilder {
 

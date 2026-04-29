@@ -7,6 +7,12 @@ import io.github.zhh2001.jp4.entity.TableEntry;
  * {@code P4Switch.batch()}. Add updates with {@link #insert(TableEntry)},
  * {@link #modify(TableEntry)}, {@link #delete(TableEntry)} (chainable), then
  * {@link #execute()} to fire the RPC and obtain a {@link WriteResult}.
+ *
+ * @implNote Implementation pending; every method currently throws
+ *           {@link UnsupportedOperationException}. Behaviour lands in a later v0.1.0
+ *           milestone (Phase 6).
+ *
+ * @since 0.1.0
  */
 public interface BatchBuilder {
 

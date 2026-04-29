@@ -10,6 +10,8 @@ import java.util.Objects;
  * <p>Although declared as a {@code record}, the compact constructor defensively copies
  * the input array and the {@link #octets()} accessor returns a fresh copy, so callers
  * cannot mutate the underlying state.
+ *
+ * @since 0.1.0
  */
 public record Mac(byte[] octets) {
 

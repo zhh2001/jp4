@@ -10,6 +10,15 @@ import java.util.Objects;
  * chain. The same instance can be reused across switches that share the same pipeline.
  *
  * <p>Skeleton in 4A; full validation against the bound P4Info is implemented in Phase 5.
+ *
+ * @implNote Implementation pending; the entry's accessors throw {@link
+ *           UnsupportedOperationException} until Phase 6 lands the P4Info-driven
+ *           validation. {@link #in(String)} and the builder chain compile and
+ *           chain correctly today; {@link
+ *           io.github.zhh2001.jp4.entity.TableEntryBuilder#build()} is the first
+ *           call that throws.
+ *
+ * @since 0.1.0
  */
 public final class TableEntry {
 

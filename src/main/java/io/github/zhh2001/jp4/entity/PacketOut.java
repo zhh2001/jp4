@@ -7,6 +7,11 @@ import io.github.zhh2001.jp4.types.Mac;
  * Outbound packet for {@code P4Switch.send(...)}. Build via {@link #builder()}.
  *
  * <p>Skeleton in 4A.
+ *
+ * @implNote Implementation pending; {@link Builder#build()} throws {@link
+ *           UnsupportedOperationException} until Phase 7.
+ *
+ * @since 0.1.0
  */
 public final class PacketOut {
 

@@ -10,6 +10,8 @@ import java.util.List;
  * device, with each failure's original batch index. A whole-RPC error (transport
  * failure, mastership lost, etc.) does NOT surface here — those throw
  * {@code P4ConnectionException} instead.
+ *
+ * @since 0.1.0
  */
 public record WriteResult(int submitted, List<UpdateFailure> failures) {
 

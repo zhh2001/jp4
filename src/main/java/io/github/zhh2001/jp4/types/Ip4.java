@@ -6,6 +6,8 @@ import java.util.Objects;
 /**
  * 32-bit IPv4 address. Always 4 bytes; constructors validate length and dotted-quad
  * format. Defensive copy semantics matching {@link Mac}.
+ *
+ * @since 0.1.0
  */
 public record Ip4(byte[] octets) {
 

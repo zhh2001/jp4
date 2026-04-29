@@ -4,6 +4,8 @@ package io.github.zhh2001.jp4.error;
  * Mirrors the canonical gRPC status codes that P4Runtime uses to report per-update
  * outcomes. Names match {@code io.grpc.Status.Code} so callers familiar with gRPC
  * recognise them immediately.
+ *
+ * @since 0.1.0
  */
 public enum ErrorCode {
     OK,

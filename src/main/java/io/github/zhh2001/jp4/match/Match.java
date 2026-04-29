@@ -10,6 +10,8 @@ import java.util.Objects;
  * One value in a {@code TableEntry} match key. Sealed; subtypes correspond to the
  * P4Runtime {@code FieldMatch} oneof variants. Use {@code switch} on a returned
  * {@code Match} for compile-time exhaustive handling.
+ *
+ * @since 0.1.0
  */
 public sealed interface Match permits Match.Exact, Match.Lpm, Match.Ternary, Match.Range, Match.Optional {
 

@@ -12,6 +12,11 @@ import io.github.zhh2001.jp4.types.Mac;
  * {@code .action("foo").param("p", 1).priority(100).build()} stay flat.
  *
  * <p>Skeleton in 4A; {@link #build()} throws.
+ *
+ * @implNote Implementation pending; {@link #build()} delegates to {@code
+ *           TableEntryBuilder.build()} which throws.
+ *
+ * @since 0.1.0
  */
 public final class ActionBuilder {
 

@@ -24,6 +24,13 @@ import java.util.stream.Stream;
  * <p>v0.2 will add {@code where(Predicate<TableEntry>)} for arbitrary client-side
  * filtering and {@code fields(...)} for projection. The signatures here are stable;
  * those extensions go on {@code ReadQuery}, not on {@code P4Switch}.
+ *
+ * @implNote Implementation pending; every method currently throws
+ *           {@link UnsupportedOperationException}. The interface ships in v0.1.0 so
+ *           callers can write code against the final shape; behaviour lands in a
+ *           later v0.1.0 milestone (Phase 6).
+ *
+ * @since 0.1.0
  */
 public interface ReadQuery {
 

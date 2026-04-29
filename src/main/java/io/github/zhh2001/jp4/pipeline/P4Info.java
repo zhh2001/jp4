@@ -11,6 +11,12 @@ import java.util.List;
  * <p>Skeleton in 4A: implementations of every accessor throw
  * {@link UnsupportedOperationException}. Full implementation lands in Phase 5 when
  * entry validation is wired up.
+ *
+ * @implNote Implementation pending; every accessor throws {@link
+ *           UnsupportedOperationException} until Phase 5 wires the parsed
+ *           protobuf into a name-to-id index.
+ *
+ * @since 0.1.0
  */
 public final class P4Info {
 

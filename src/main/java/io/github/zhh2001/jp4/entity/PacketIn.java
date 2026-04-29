@@ -8,6 +8,11 @@ import io.github.zhh2001.jp4.types.Bytes;
  * {@code controller_packet_metadata} fields declared in P4Info.
  *
  * <p>Skeleton in 4A.
+ *
+ * @implNote Implementation pending; payload and metadata accessors throw {@link
+ *           UnsupportedOperationException} until Phase 7.
+ *
+ * @since 0.1.0
  */
 public final class PacketIn {
 

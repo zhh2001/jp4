@@ -5,6 +5,8 @@ package io.github.zhh2001.jp4.pipeline;
  * only the two values in active use; the remaining spec values
  * ({@code VERIFY}, {@code VERIFY_AND_SAVE}, {@code COMMIT}) will be added when a real
  * use case appears.
+ *
+ * @since 0.1.0
  */
 public enum PipelineAction {
     /** Verify the pipeline and atomically activate it. The default for first push. */

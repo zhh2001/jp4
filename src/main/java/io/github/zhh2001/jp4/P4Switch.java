@@ -71,6 +71,19 @@ import java.util.function.Consumer;
  * cooperate with {@link #close()} to ensure no resource leaks if the user closes
  * the switch mid-attempt. Reconnect can be disabled with
  * {@link ReconnectPolicy#noRetry()} (the default).
+ *
+ * @implNote Connection, arbitration, mastership-change events, the synchronous and
+ *           idempotent forms of {@code asPrimary}, {@code close}, and the read-only
+ *           accessors are real as of v0.1.0. Pipeline push, table operations, packet
+ *           I/O, and the read query builder still throw
+ *           {@link UnsupportedOperationException}; behaviour lands in later v0.1.0
+ *           milestones (Phase 5 = pipeline, Phase 6 = entries, Phase 7 = packets).
+ *           Write-side methods enforce the primary-state precondition before throwing
+ *           UOE — a switch obtained via {@code asSecondary()} or one demoted by a
+ *           higher election id surfaces {@link P4ConnectionException}, not UOE, when a
+ *           write is attempted.
+ *
+ * @since 0.1.0
  */
 public final class P4Switch implements AutoCloseable {
 

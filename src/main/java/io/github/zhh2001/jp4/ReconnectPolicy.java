@@ -8,6 +8,8 @@ import java.util.OptionalLong;
  * Strategy for re-establishing the gRPC stream after a transport failure. Consulted by
  * the auto-reconnect loop after a {@code P4ConnectionException} from gRPC; an empty
  * return ends the retry sequence and surfaces the failure to the caller.
+ *
+ * @since 0.1.0
  */
 public interface ReconnectPolicy {
 

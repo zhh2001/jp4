@@ -7,6 +7,8 @@ package io.github.zhh2001.jp4.error;
  * {@link P4OperationException}).
  *
  * <p>All jp4 exceptions are unchecked.
+ *
+ * @since 0.1.0
  */
 public class P4RuntimeException extends RuntimeException {
 

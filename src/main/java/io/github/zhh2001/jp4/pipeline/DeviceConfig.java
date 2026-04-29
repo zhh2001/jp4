@@ -12,6 +12,8 @@ import java.util.Objects;
  * targets at compile time; v0.1 ships {@code Bmv2} and {@code Raw}. Tofino support is
  * planned for v0.2 — until then, encode Tofino contexts manually and pass via
  * {@link Raw}.
+ *
+ * @since 0.1.0
  */
 public sealed interface DeviceConfig permits DeviceConfig.Bmv2, DeviceConfig.Raw {
 

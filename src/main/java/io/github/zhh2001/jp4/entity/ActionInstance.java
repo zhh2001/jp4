@@ -5,6 +5,11 @@ package io.github.zhh2001.jp4.entity;
  * The read-side counterpart to the {@code action(...).param(...)} builder chain.
  *
  * <p>Skeleton in 4A; populated in Phase 5 once entry validation lands.
+ *
+ * @implNote Implementation pending; the read-side accessor throws {@link
+ *           UnsupportedOperationException} until Phase 6.
+ *
+ * @since 0.1.0
  */
 public final class ActionInstance {
 

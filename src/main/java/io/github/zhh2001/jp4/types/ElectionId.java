@@ -6,6 +6,8 @@ import java.util.Objects;
 /**
  * 128-bit election id used for P4Runtime mastership arbitration. Compared as an
  * unsigned 128-bit integer; higher value wins primary.
+ *
+ * @since 0.1.0
  */
 public record ElectionId(long high, long low) implements Comparable<ElectionId> {
 

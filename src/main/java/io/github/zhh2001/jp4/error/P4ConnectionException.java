@@ -9,6 +9,8 @@ package io.github.zhh2001.jp4.error;
  *       (see the {@link P4ArbitrationLost} subclass for that specific case).</li>
  *   <li>The {@code P4Switch} has been closed and an operation was attempted on it.</li>
  * </ul>
+ *
+ * @since 0.1.0
  */
 public class P4ConnectionException extends P4RuntimeException {
 

@@ -4,64 +4,75 @@ import org.junit.jupiter.api.Assumptions;
 
 import java.io.IOException;
 import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
-import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Spawns a real {@code simple_switch_grpc} on a free port for integration tests.
+ * Public test fixture for spawning a real BMv2 instance during integration tests.
+ *
+ * <p>The actual mechanism is selected at construction time by the {@code JP4_BMV2_MODE}
+ * environment variable:
+ * <ul>
+ *   <li><b>{@code native}</b> (default) — local {@code simple_switch_grpc} via
+ *       {@link NativeBackend}; the developer-machine path</li>
+ *   <li><b>{@code docker}</b> — Testcontainers + {@code p4lang/behavioral-model} via
+ *       {@link DockerBackend}; the CI path</li>
+ * </ul>
  *
  * <p>Lifecycle:
  * <ol>
  *   <li>{@link #checkEnvironment()} — call from {@code @BeforeAll}; gates the entire
- *       test class on having a usable network interface and the {@code simple_switch_grpc}
- *       binary with the right capabilities. Skips the class via
- *       {@link Assumptions#assumeTrue(boolean, String)} otherwise, with a one-shot
- *       message that names the missing piece.</li>
- *   <li>{@code new BMv2TestSupport(testName).start()} — pick a free TCP port, spawn the
- *       process, wait for the gRPC port to become connectable. Default deadline 10 s.</li>
+ *       test class on the chosen backend's prerequisites being satisfied. Skips the
+ *       class via {@link Assumptions#assumeTrue(boolean, String)} otherwise.</li>
+ *   <li>{@code new BMv2TestSupport(testName).start()} — pick a free TCP port (host
+ *       side), spawn the backend, wait for the gRPC port to be reachable.</li>
  *   <li>{@link #grpcAddress()} / {@link #grpcPort()} / {@link #pid()} — for use by tests.</li>
- *   <li>{@link #close()} — graceful {@code destroy()}, 1 s grace, then
- *       {@code destroyForcibly()}. Always called from {@code @AfterAll} /
- *       {@code @AfterEach}; safe to call twice.</li>
+ *   <li>{@link #close()} — graceful teardown via the backend's destroy chain.</li>
  * </ol>
  *
  * <p>Tests <b>never</b> invoke {@code sudo}. Network interface creation is the
- * developer's one-time setup; if it's missing, the class skips with an explicit hint.
+ * developer's one-time setup; if it's missing in native mode, the class skips with
+ * an explicit hint.
  */
 public final class BMv2TestSupport implements AutoCloseable {
 
     private static final String SS_BIN = "/usr/local/bin/simple_switch_grpc";
-    private static final Path LOG_DIR = Path.of("build", "test-bmv2");
-    private static final Duration READY_TIMEOUT = Duration.ofSeconds(10);
-    private static final Duration GRACE_AFTER_DESTROY = Duration.ofSeconds(1);
 
-    private final String testName;
-    private final String iface;
-    private final int port;
-    private Process process;
-    private Path logFile;
+    private final Bmv2Backend backend;
 
     public BMv2TestSupport(String testName) {
-        this.testName = sanitise(Objects.requireNonNull(testName, "testName"));
-        this.iface = pickInterface();   // already validated by checkEnvironment()
-        this.port = pickFreePort();
+        Objects.requireNonNull(testName, "testName");
+        String safe = sanitise(testName);
+        int port = pickFreePort();
+        String mode = currentMode();
+        if ("docker".equals(mode)) {
+            this.backend = new DockerBackend(safe, port);
+        } else {
+            this.backend = new NativeBackend(safe, port, pickInterface());
+        }
     }
 
     /**
-     * Returns immediately if the environment is usable; otherwise calls
-     * {@link Assumptions#assumeTrue} with a hint that names the missing piece, which
-     * skips the entire test class cleanly. Call once from {@code @BeforeAll}.
+     * Returns immediately if the environment supports the selected backend; otherwise
+     * skips the entire test class via {@link Assumptions#assumeTrue} with a hint that
+     * names the missing piece. Call once from {@code @BeforeAll}.
      */
     public static void checkEnvironment() {
+        if ("docker".equals(currentMode())) {
+            // Docker mode: Testcontainers will validate the daemon at start time.
+            // We only check here that the Docker socket / TC strategy is wired,
+            // which Testcontainers itself reports clearly on first use.
+            return;
+        }
+        // Native mode: check binary, capabilities, and at least one usable interface.
         if (!Files.isExecutable(Path.of(SS_BIN))) {
             Assumptions.assumeTrue(false,
                     "simple_switch_grpc not found at " + SS_BIN
-                            + " — install BMv2 from https://github.com/p4lang/behavioral-model");
+                            + " — install BMv2 from https://github.com/p4lang/behavioral-model"
+                            + " or run with JP4_BMV2_MODE=docker");
         }
         if (!hasCapabilities(SS_BIN)) {
             Assumptions.assumeTrue(false,
@@ -78,141 +89,41 @@ public final class BMv2TestSupport implements AutoCloseable {
         }
     }
 
-    /** Spawns the BMv2 process, waits for the gRPC port to be reachable. */
+    /** Tells tests whether the current mode is Docker (used by tests that need to
+     *  skip OS-pid-specific assertions). */
+    public static boolean isDockerMode() {
+        return "docker".equals(currentMode());
+    }
+
     public BMv2TestSupport start() throws IOException, InterruptedException {
-        Files.createDirectories(LOG_DIR);
-        this.logFile = LOG_DIR.resolve(testName + "-" + port + ".log");
-
-        List<String> cmd = List.of(
-                SS_BIN,
-                "--no-p4",
-                "--device-id", "0",
-                "--log-console",
-                "-L", "info",
-                "-i", "0@" + iface,
-                "--",
-                "--grpc-server-addr", "127.0.0.1:" + port
-        );
-
-        ProcessBuilder pb = new ProcessBuilder(cmd)
-                .redirectOutput(logFile.toFile())
-                .redirectErrorStream(true);
-        this.process = pb.start();
-
-        if (!waitForPort(port, READY_TIMEOUT)) {
-            // Don't leave a zombie; capture the log in the failure message.
-            String logTail = readTail(logFile, 30);
-            destroyAndWait();
-            throw new IllegalStateException(
-                    "BMv2 (pid=" + process.pid() + ") did not bind 127.0.0.1:" + port
-                            + " within " + READY_TIMEOUT + "; log tail:\n" + logTail);
-        }
+        backend.start();
         return this;
     }
 
-    public String grpcAddress() {
-        return "127.0.0.1:" + port;
-    }
-
-    public int grpcPort() {
-        return port;
-    }
-
-    public String iface() {
-        return iface;
-    }
-
-    public Path logFile() {
-        return logFile;
-    }
-
-    public long pid() {
-        return process == null ? -1 : process.pid();
-    }
-
-    public boolean isAlive() {
-        return process != null && process.isAlive();
-    }
-
-    /**
-     * Stops the current BMv2 instance and starts a new one on the <em>same</em> port,
-     * with retries to handle TCP lingering on Linux. Used by reconnect tests that
-     * need the controller to reach the "same" device after a server crash.
-     */
     public BMv2TestSupport restart() throws IOException, InterruptedException {
-        destroyAndWait();
-        // Wait for the kernel to release the listening socket; on a busy machine the
-        // port may stay in TIME_WAIT briefly. Retry the bind a few times before giving up.
-        Files.createDirectories(LOG_DIR);
-        this.logFile = LOG_DIR.resolve(testName + "-" + port + "-restart-" + System.currentTimeMillis() + ".log");
-
-        List<String> cmd = List.of(
-                SS_BIN,
-                "--no-p4",
-                "--device-id", "0",
-                "--log-console",
-                "-L", "info",
-                "-i", "0@" + iface,
-                "--",
-                "--grpc-server-addr", "127.0.0.1:" + port
-        );
-
-        IOException lastBindFailure = null;
-        for (int bindAttempt = 1; bindAttempt <= 5; bindAttempt++) {
-            ProcessBuilder pb = new ProcessBuilder(cmd)
-                    .redirectOutput(logFile.toFile())
-                    .redirectErrorStream(true);
-            this.process = pb.start();
-            if (waitForPort(port, READY_TIMEOUT)) {
-                return this;
-            }
-            // Port not bound — the new process likely failed to claim it. Tear it down
-            // and try once more after a short pause for the OS to recycle the socket.
-            destroyAndWait();
-            Thread.sleep(200L * bindAttempt);
-            lastBindFailure = new IOException(
-                    "BMv2 restart bind attempt " + bindAttempt + " did not produce a listener on port " + port);
-        }
-        throw new IllegalStateException(
-                "BMv2 could not be restarted on port " + port + " after 5 bind attempts",
-                lastBindFailure);
+        backend.restart();
+        return this;
     }
 
-    /**
-     * Forcefully kills the process group. Used by tests that need to simulate a
-     * server crash mid-stream (scenario h). Safe to call before normal {@link #close()}.
-     */
-    public void killForciblyNow() {
-        if (process != null && process.isAlive()) {
-            process.destroyForcibly();
-            try {
-                process.waitFor(GRACE_AFTER_DESTROY.toMillis(), TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
+    public void killForciblyNow()        { backend.killForciblyNow(); }
+    public String grpcAddress()          { return backend.grpcAddress(); }
+    public int grpcPort()                { return backend.grpcPort(); }
+    public String iface()                {
+        return backend instanceof NativeBackend ? "veth0/bm0 (native)" : "lo (docker)";
     }
+    public Path logFile()                { return backend.logFile(); }
+    public long pid()                    { return backend.pid(); }
+    public boolean isAlive()             { return backend.isAlive(); }
 
     @Override
-    public void close() {
-        destroyAndWait();
-    }
-
-    private void destroyAndWait() {
-        if (process == null || !process.isAlive()) return;
-        process.destroy();
-        try {
-            if (!process.waitFor(GRACE_AFTER_DESTROY.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                process.waitFor(GRACE_AFTER_DESTROY.toMillis(), TimeUnit.MILLISECONDS);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-        }
-    }
+    public void close()                  { backend.close(); }
 
     // ---------- helpers ---------------------------------------------------
+
+    private static String currentMode() {
+        String env = System.getenv("JP4_BMV2_MODE");
+        return env == null ? "native" : env.trim().toLowerCase(Locale.ROOT);
+    }
 
     private static int pickFreePort() {
         try (ServerSocket s = new ServerSocket(0)) {
@@ -254,35 +165,6 @@ public final class BMv2TestSupport implements AutoCloseable {
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             return false;
-        }
-    }
-
-    /**
-     * Polls {@code 127.0.0.1:port} for connectability. Uses a short {@link Socket}
-     * connect attempt — TCP is non-blocking and gives an unambiguous "ready" signal
-     * the moment the gRPC server starts accepting; no fixed sleeps.
-     */
-    private static boolean waitForPort(int port, Duration timeout) throws InterruptedException {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        while (System.nanoTime() < deadline) {
-            try (Socket s = new Socket()) {
-                s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 200);
-                return true;
-            } catch (IOException ignored) {
-                // not yet up; brief yield so we don't busy-spin
-                Thread.sleep(50);
-            }
-        }
-        return false;
-    }
-
-    private static String readTail(Path file, int lines) {
-        try {
-            List<String> all = Files.readAllLines(file);
-            int from = Math.max(0, all.size() - lines);
-            return String.join("\n", all.subList(from, all.size()));
-        } catch (IOException e) {
-            return "(could not read log: " + e.getMessage() + ")";
         }
     }
 
