@@ -81,6 +81,23 @@ The connector's `.asPrimary()` (the terminal that constructs the switch) and the
 switch's `.asPrimary()` share this contract: calling either when already primary is
 a cheap no-op.
 
+**Switch state accessors.** A live `P4Switch` exposes its identity and current state
+through five read-only methods. They are safe to call from any thread and never block
+on RPCs:
+
+```java
+String          address();      // host:port we connected to
+long            deviceId();     // device id this switch is bound to
+ElectionId      electionId();   // election id this switch was constructed with
+boolean         isPrimary();    // true iff currently holding the primary slot
+MastershipStatus mastership();  // full snapshot: Acquired or Lost (with the new primary's id)
+```
+
+`address`, `deviceId`, and `electionId` are constants for the lifetime of the
+connection. `isPrimary` is the boolean projection of `mastership`. `mastership`
+returns the latest snapshot — useful for HA controllers that want to inspect *who*
+took primary when they lost it.
+
 ### D2. Sync by default, async opt-in, streams via `Flow`
 
 | Operation kind | Default API | Power-user alternative |

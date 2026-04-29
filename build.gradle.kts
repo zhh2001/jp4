@@ -51,6 +51,7 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-junit-jupiter:2.0.5")
     testImplementation("io.grpc:grpc-inprocess:$grpcVersion")
     testImplementation("ch.qos.logback:logback-classic:1.5.15")
+    testImplementation("org.awaitility:awaitility:4.2.2")
 }
 
 protobuf {
@@ -76,6 +77,10 @@ tasks.test {
     testLogging {
         events("passed", "skipped", "failed")
     }
+    // grpc-netty-shaded touches sun.misc.Unsafe and System.loadLibrary; on JDK 24+
+    // the JVM warns or (eventually) refuses without an explicit native-access grant.
+    // See NOTES.md for the classification record.
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
 tasks.jar {

@@ -269,21 +269,13 @@ class SpecComplianceTest {
     }
 
     // ===================================================================================
-    // Behaviour validation — assert that the first user-visible RPC in each scenario
-    // is intentionally unimplemented in 4A. Later sub-phases peel these away.
+    // Behaviour validation — assert that the first user-visible RPC in each scenario is
+    // intentionally unimplemented yet. Sub-phases delete these one scenario at a time as
+    // real behaviour lands; once a scenario is fully implemented its assertion moves to
+    // an integration test class. Connection / arbitration (scenarios A and F's connect
+    // half) are now covered by the ArbitrationTest / StreamLifecycleTest /
+    // ConnectionFailureTest classes — their UOE rows are gone from this file.
     // ===================================================================================
-
-    @Test
-    void scenarioA_connectAsPrimaryThrowsUOE() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> P4Switch.connectAsPrimary("127.0.0.1:50051"));
-    }
-
-    @Test
-    void scenarioA_connectorAsPrimaryThrowsUOE() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> P4Switch.connect("127.0.0.1:50051").deviceId(0).electionId(1).asPrimary());
-    }
 
     @Test
     void scenarioB_p4InfoFromFileThrowsUOE() {
@@ -294,7 +286,7 @@ class SpecComplianceTest {
     @Test
     void scenarioC_tableEntryBuildThrowsUOE() {
         // .in() / .match() / .action() / .param() chain returns builders fine;
-        // the terminal .build() is the first method that should be UOE in 4A.
+        // the terminal .build() is the first call that should be UOE today.
         assertThrows(UnsupportedOperationException.class,
                 () -> TableEntry.in("MyIngress.dmac")
                         .match("hdr.ethernet.dstAddr", Mac.of("00:00:00:00:00:01"))
@@ -306,11 +298,5 @@ class SpecComplianceTest {
     void scenarioE_packetOutBuildThrowsUOE() {
         assertThrows(UnsupportedOperationException.class,
                 () -> PacketOut.builder().payload(new byte[]{1}).metadata("p", 1).build());
-    }
-
-    @Test
-    void scenarioF_connectorAsSecondaryThrowsUOE() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> P4Switch.connect("127.0.0.1:50051").deviceId(0).electionId(1).asSecondary());
     }
 }
