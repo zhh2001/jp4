@@ -22,7 +22,7 @@ repositories {
 }
 
 val grpcVersion = "1.80.0"
-val protobufVersion = "4.29.3"
+val protobufVersion = "4.34.1"
 val slf4jVersion = "2.0.16"
 
 dependencies {
@@ -33,8 +33,14 @@ dependencies {
     implementation("io.grpc:grpc-netty-shaded:$grpcVersion")
     implementation("org.slf4j:slf4j-api:$slf4jVersion")
 
+    // proto-google-common-protos provides google.rpc.Status (used by p4runtime.proto)
+    // as PRE-COMPILED Java classes. Its .proto files are also auto-extracted onto
+    // protoc's include path via the compileClasspath. We deliberately do NOT add it
+    // to the `protobuf` configuration: that would re-compile google/protobuf/*.proto
+    // (descriptor.proto, any.proto, ...) and the resulting classes would shadow the
+    // versions in protobuf-java itself, leading to NoSuchMethodError/NoSuchFieldError
+    // at runtime.
     implementation("com.google.api.grpc:proto-google-common-protos:2.63.2")
-    protobuf("com.google.api.grpc:proto-google-common-protos:2.63.2")
 
     compileOnly("org.apache.tomcat:annotations-api:6.0.53")
 
