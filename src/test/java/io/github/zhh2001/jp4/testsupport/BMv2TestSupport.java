@@ -135,6 +135,50 @@ public final class BMv2TestSupport implements AutoCloseable {
     }
 
     /**
+     * Stops the current BMv2 instance and starts a new one on the <em>same</em> port,
+     * with retries to handle TCP lingering on Linux. Used by reconnect tests that
+     * need the controller to reach the "same" device after a server crash.
+     */
+    public BMv2TestSupport restart() throws IOException, InterruptedException {
+        destroyAndWait();
+        // Wait for the kernel to release the listening socket; on a busy machine the
+        // port may stay in TIME_WAIT briefly. Retry the bind a few times before giving up.
+        Files.createDirectories(LOG_DIR);
+        this.logFile = LOG_DIR.resolve(testName + "-" + port + "-restart-" + System.currentTimeMillis() + ".log");
+
+        List<String> cmd = List.of(
+                SS_BIN,
+                "--no-p4",
+                "--device-id", "0",
+                "--log-console",
+                "-L", "info",
+                "-i", "0@" + iface,
+                "--",
+                "--grpc-server-addr", "127.0.0.1:" + port
+        );
+
+        IOException lastBindFailure = null;
+        for (int bindAttempt = 1; bindAttempt <= 5; bindAttempt++) {
+            ProcessBuilder pb = new ProcessBuilder(cmd)
+                    .redirectOutput(logFile.toFile())
+                    .redirectErrorStream(true);
+            this.process = pb.start();
+            if (waitForPort(port, READY_TIMEOUT)) {
+                return this;
+            }
+            // Port not bound — the new process likely failed to claim it. Tear it down
+            // and try once more after a short pause for the OS to recycle the socket.
+            destroyAndWait();
+            Thread.sleep(200L * bindAttempt);
+            lastBindFailure = new IOException(
+                    "BMv2 restart bind attempt " + bindAttempt + " did not produce a listener on port " + port);
+        }
+        throw new IllegalStateException(
+                "BMv2 could not be restarted on port " + port + " after 5 bind attempts",
+                lastBindFailure);
+    }
+
+    /**
      * Forcefully kills the process group. Used by tests that need to simulate a
      * server crash mid-stream (scenario h). Safe to call before normal {@link #close()}.
      */

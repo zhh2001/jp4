@@ -22,13 +22,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Intermediate stage between {@link P4Switch#connect(String)} and one of the terminals
- * {@link #asPrimary()} / {@link #asSecondary()}. Each setter returns {@code this} so
- * the chain reads as one expression. Defaults: {@code deviceId=0}, {@code electionId=1},
- * {@link ReconnectPolicy#noRetry()}, packet-in queue capacity 1024.
- */
 public final class Connector {
+
+    private static final AtomicLong SWITCH_SEQ = new AtomicLong();
 
     private final String address;
     private long deviceId = 0L;
@@ -45,7 +41,6 @@ public final class Connector {
         return this;
     }
 
-    /** Convenience: sets election id with high=0, low={@code low}. */
     public Connector electionId(long low) {
         this.electionId = ElectionId.of(low);
         return this;
@@ -61,7 +56,6 @@ public final class Connector {
         return this;
     }
 
-    /** Maximum number of unconsumed PacketIn messages buffered before drops are reported. */
     public Connector packetInQueueSize(int size) {
         if (size <= 0) {
             throw new IllegalArgumentException("packetInQueueSize must be > 0, got " + size);
@@ -70,53 +64,37 @@ public final class Connector {
         return this;
     }
 
-    /**
-     * Opens the channel, sends {@code MasterArbitrationUpdate} with the configured
-     * election id, and blocks until the response confirms primary. Throws
-     * {@link P4ArbitrationLost} if a higher election id already holds primary, or
-     * {@link P4ConnectionException} for any transport-level failure or timeout.
-     */
-    public P4Switch asPrimary() {
-        return open(/*requirePrimary=*/ true);
-    }
+    public P4Switch asPrimary()   { return open(/*requirePrimary=*/ true); }
+    public P4Switch asSecondary() { return open(/*requirePrimary=*/ false); }
 
-    /**
-     * Opens the channel and sends arbitration, returning as soon as the response
-     * arrives regardless of whether we won primary. The returned switch's
-     * {@code isPrimary()} reflects the actual role; writes throw while not primary.
-     */
-    public P4Switch asSecondary() {
-        return open(/*requirePrimary=*/ false);
-    }
-
-    String address() {
-        return address;
-    }
-
-    long deviceId() {
-        return deviceId;
-    }
-
-    ElectionId electionId() {
-        return electionId;
-    }
-
-    ReconnectPolicy reconnectPolicy() {
-        return reconnectPolicy;
-    }
-
-    int packetInQueueSize() {
-        return packetInQueueSize;
-    }
+    String address()                  { return address; }
+    long deviceId()                   { return deviceId; }
+    ElectionId electionId()           { return electionId; }
+    ReconnectPolicy reconnectPolicy() { return reconnectPolicy; }
+    int packetInQueueSize()           { return packetInQueueSize; }
 
     // ---------- internal -----------------------------------------------------
 
     private P4Switch open(boolean requirePrimary) {
+        long switchId = SWITCH_SEQ.incrementAndGet();
+
+        // Build executors with name + thread-reference capture for self-detection in close().
+        Thread[] outboundThreadRef = new Thread[1];
+        Thread[] callbackThreadRef = new Thread[1];
+        ExecutorService outboundExec = Executors.newSingleThreadExecutor(capturingFactory(
+                "jp4-sw" + switchId + "-outbound", outboundThreadRef));
+        ExecutorService callbackExec = Executors.newSingleThreadExecutor(capturingFactory(
+                "jp4-sw" + switchId + "-callback", callbackThreadRef));
+        ScheduledExecutorService reconnectExec = Executors.newSingleThreadScheduledExecutor(
+                daemonFactory("jp4-sw" + switchId + "-reconnect"));
+
+        // Force the executor threads to start so we capture the Thread reference NOW
+        // (before the P4Switch constructor needs them).
+        primeExecutor(outboundExec);
+        primeExecutor(callbackExec);
+
         ManagedChannel channel = buildChannel(address);
-        ExecutorService outboundExec = newSingleDaemon("jp4-outbound");
-        ExecutorService callbackExec = newSingleDaemon("jp4-callback");
-        ScheduledExecutorService reconnectExec = newSingleDaemonScheduled("jp4-reconnect");
-        InboundStreamHandler handler = new InboundStreamHandler(electionId);
+        InboundStreamHandler handler = new InboundStreamHandler(electionId, /*generation=*/ 0L);
 
         StreamObserver<StreamMessageRequest> reqObserver;
         try {
@@ -125,9 +103,10 @@ public final class Connector {
             shutdownAll(channel, outboundExec, callbackExec, reconnectExec);
             throw new P4ConnectionException("failed to open StreamChannel to " + address, e);
         }
+        StreamSession initialSession = new StreamSession(0L, channel, handler, reqObserver);
 
-        // Send arbitration through the serial outbound executor, mirroring the contract
-        // every other outbound RPC will follow.
+        // Send arbitration through the serial outbound executor (mirrors the contract
+        // every other outbound RPC will follow).
         Uint128 eid = Uint128.newBuilder().setHigh(electionId.high()).setLow(electionId.low()).build();
         MasterArbitrationUpdate mau = MasterArbitrationUpdate.newBuilder()
                 .setDeviceId(deviceId)
@@ -152,7 +131,7 @@ public final class Connector {
             throw new P4ConnectionException("timeout sending arbitration to " + address, te);
         }
 
-        // Wait for the device's first arbitration response.
+        // Wait for first arbitration response.
         MastershipStatus initial;
         try {
             initial = handler.firstResponse().get(
@@ -182,35 +161,42 @@ public final class Connector {
         }
 
         P4Switch sw = new P4Switch(
-                address, deviceId, electionId,
-                channel, reqObserver,
+                address, deviceId, electionId, reconnectPolicy,
                 outboundExec, callbackExec, reconnectExec,
-                initial);
+                outboundThreadRef[0], callbackThreadRef[0],
+                initialSession, initial);
         handler.attach(sw);
         return sw;
     }
 
+    private static void primeExecutor(ExecutorService exec) {
+        try {
+            exec.submit(() -> { /* warm-up so the thread is created */ }).get(1, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            // Should not happen for a freshly created single-thread executor.
+            throw new IllegalStateException("could not prime executor", e);
+        }
+    }
+
     private static ManagedChannel buildChannel(String address) {
-        // address is "host:port"; let NettyChannelBuilder parse it.
         return NettyChannelBuilder
                 .forTarget(address)
                 .usePlaintext()
                 .build();
     }
 
-    private static final AtomicLong THREAD_SEQ = new AtomicLong();
-
-    private static ExecutorService newSingleDaemon(String prefix) {
-        return Executors.newSingleThreadExecutor(daemonFactory(prefix));
-    }
-
-    private static ScheduledExecutorService newSingleDaemonScheduled(String prefix) {
-        return Executors.newSingleThreadScheduledExecutor(daemonFactory(prefix));
-    }
-
-    private static ThreadFactory daemonFactory(String prefix) {
+    private static ThreadFactory capturingFactory(String name, Thread[] holder) {
         return r -> {
-            Thread t = new Thread(r, prefix + "-" + THREAD_SEQ.incrementAndGet());
+            Thread t = new Thread(r, name);
+            t.setDaemon(true);
+            holder[0] = t;
+            return t;
+        };
+    }
+
+    private static ThreadFactory daemonFactory(String name) {
+        return r -> {
+            Thread t = new Thread(r, name);
             t.setDaemon(true);
             return t;
         };
