@@ -349,6 +349,28 @@ public final class P4Info {
     public ActionInfo action(String name);
 }
 
+public final class TableInfo {
+    public String                name();
+    public int                   id();
+    public List<MatchFieldInfo>  matchFields();
+    public MatchFieldInfo        matchField(String name);  // throws on miss
+    public Set<Integer>          actionIds();
+    public long                  maxSize();                // 0 means unspecified
+}
+
+public final class ActionInfo {
+    public String                 name();
+    public int                    id();
+    public List<ActionParamInfo>  params();
+    public ActionParamInfo        param(String name);     // throws on miss
+}
+
+public record MatchFieldInfo(int id, String name, Kind matchKind, int bitWidth) {
+    public enum Kind { UNSPECIFIED, EXACT, LPM, TERNARY, RANGE, OPTIONAL }
+}
+
+public record ActionParamInfo(int id, String name, int bitWidth) { }
+
 public enum PipelineAction { VERIFY_AND_COMMIT, RECONCILE_AND_COMMIT }
 ```
 
@@ -455,6 +477,11 @@ try (P4Switch sw = P4Switch.connectAsPrimary(addr).loadPipeline()) {
 ```
 
 `loadPipeline()` issues `GetForwardingPipelineConfig(ALL)` and binds the result.
+**Empty-pipeline contract:** if the device responds OK but the returned
+`ForwardingPipelineConfig` has zero tables and an empty `p4_device_config`,
+`loadPipeline()` throws `P4PipelineException` with message
+`"device has no bound pipeline"`. The library does not return an empty `Pipeline`
+to the caller; absence is treated as an error condition.
 
 **Pain killed.** 3, 4.
 

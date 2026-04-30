@@ -37,3 +37,55 @@ java --enable-native-access=ALL-UNNAMED -jar my-controller.jar
 ```
 
 This will be folded into the official README in Phase 10.
+
+## CI workflow uses Node 20 actions (deprecated)
+
+`.github/workflows/ci.yml` references `actions/checkout@v4`, `actions/setup-java@v4`,
+and `gradle/actions/setup-gradle@v4`. All three are still on Node.js 20 internally,
+which GitHub has marked deprecated. The runner emits a non-blocking warning on every
+run today.
+
+### Timeline
+
+- **2026-06-02** — GitHub will start enforcing Node 24 for actions that have a Node 24
+  release available; the deprecated-warning-only path ends here.
+- **2026-09-16** — GitHub removes Node 20 from runners entirely; any action still on
+  Node 20 stops working.
+
+### Mitigation (deferred to Phase 11)
+
+When the upstream actions ship Node 24-compatible major versions, bump the pinned
+versions in the matrix step. Likely candidates by then: `@v5` for one or more of these.
+Track the action repos a few weeks before the 2026-06-02 cutoff. No code change here
+yet — current pins are functional.
+
+## BMv2 does not validate p4info / deviceConfig consistency
+
+BMv2's PI library accepts a `SetForwardingPipelineConfig` request even when the
+supplied {@code p4info} and {@code p4_device_config} describe different P4 programs
+— it does not perform the cross-check the P4Runtime spec recommends (the spec
+language is "should", not "must", on this point). Verified experimentally during
+Phase 5 by pushing `basic.p4info.txtpb` together with `alt.json`: BMv2 returned
+`OK` on the RPC.
+
+### Why this matters
+
+A controller that pushes a wrong combination can install a pipeline that "works"
+at the device but produces incorrect runtime behaviour (table ids in entries
+won't match the bytecode). The controller would only notice at first table-write
+time, when the device rejects the entry as invalid for the current pipeline.
+
+### jp4's position
+
+The library does not perform a consistency check itself; it relays the device's
+response. Any verification that needs to happen before pushing is the controller
+author's responsibility. {@code P4Switch.bindPipeline}'s JavaDoc warns about this
+explicitly so the contract is visible at the call site.
+
+### What about other targets?
+
+Tofino's reference SDE is reported to perform the cross-check. Stratum may or may
+not, depending on which target it wraps. We deliberately do not encode any
+target-specific assumption in jp4 — the user supplies p4info and deviceConfig,
+the device decides.
+

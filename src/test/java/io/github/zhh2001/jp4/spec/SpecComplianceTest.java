@@ -277,11 +277,8 @@ class SpecComplianceTest {
     // ConnectionFailureTest classes — their UOE rows are gone from this file.
     // ===================================================================================
 
-    @Test
-    void scenarioB_p4InfoFromFileThrowsUOE() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> P4Info.fromFile(Path.of("nonexistent.p4info.txt")));
-    }
+    // scenarioB_p4InfoFromFileThrowsUOE removed: P4Info.fromFile is implemented
+    // as of v0.1.0 (Phase 5). Coverage moves to P4InfoTest unit tests.
 
     @Test
     void scenarioC_tableEntryBuildThrowsUOE() {

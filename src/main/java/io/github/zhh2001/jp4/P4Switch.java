@@ -112,6 +112,8 @@ public final class P4Switch implements AutoCloseable {
     private final AtomicLong reconnectAttempt = new AtomicLong(0L);
     private final AtomicReference<CompletableFuture<MastershipStatus>> reArbWaiter = new AtomicReference<>();
 
+    private final AtomicReference<Pipeline> pipeline = new AtomicReference<>();
+
     P4Switch(String address,
              long deviceId,
              ElectionId electionId,
@@ -239,18 +241,129 @@ public final class P4Switch implements AutoCloseable {
         listener = Objects.requireNonNull(handler, "handler");
     }
 
+    /**
+     * Pushes the supplied {@code p4info} and {@code deviceConfig} to the device via
+     * {@code SetForwardingPipelineConfig(VERIFY_AND_COMMIT)}, then atomically caches
+     * the pair on the switch. Returns {@code this}.
+     *
+     * <p>Requires the switch to be primary; secondary switches surface
+     * {@link P4ConnectionException} per the standard write-side gate. The internal
+     * pipeline cache is updated <b>only</b> after the RPC succeeds — a failed call
+     * leaves any previously bound pipeline intact.
+     *
+     * <p><b>Threading and re-entrancy.</b> This synchronous call blocks the calling
+     * thread until the RPC completes (or fails). It is safe to call from a listener
+     * callback registered via {@link #onMastershipChange} — RPC completion is
+     * delivered by gRPC's executor and does not depend on the listener callback
+     * executor, so the call will not deadlock against itself. The asynchronous
+     * variant (when added in a later release) returns {@link CompletableFuture} and
+     * runs the RPC on an internal executor without blocking the caller.
+     *
+     * @throws P4ConnectionException if the switch is closed, broken, or not primary
+     * @throws P4PipelineException   if the device rejects the pipeline. <b>Note:</b>
+     *           some targets (notably BMv2) accept syntactically valid pipelines
+     *           without verifying that the supplied {@code p4info} and
+     *           {@code deviceConfig} describe the same program; the library does not
+     *           perform a consistency check itself, it relays the device's response.
+     */
     public P4Switch bindPipeline(P4Info p4info, DeviceConfig deviceConfig) {
+        Objects.requireNonNull(p4info, "p4info");
+        Objects.requireNonNull(deviceConfig, "deviceConfig");
         requireWritable();
-        throw new UnsupportedOperationException("Not yet implemented");
+        StreamSession sess = session.get();
+        if (sess == null) throw new P4ConnectionException("no active session");
+
+        var config = p4.v1.P4RuntimeOuterClass.ForwardingPipelineConfig.newBuilder()
+                .setP4Info(p4info.proto())
+                .setP4DeviceConfig(com.google.protobuf.ByteString.copyFrom(deviceConfig.bytes()))
+                .build();
+
+        var req = p4.v1.P4RuntimeOuterClass.SetForwardingPipelineConfigRequest.newBuilder()
+                .setDeviceId(deviceId)
+                .setElectionId(buildElectionUint128())
+                .setAction(p4.v1.P4RuntimeOuterClass.SetForwardingPipelineConfigRequest.Action.VERIFY_AND_COMMIT)
+                .setConfig(config)
+                .build();
+
+        try {
+            p4.v1.P4RuntimeGrpc.newBlockingStub(sess.channel)
+                    .withDeadlineAfter(30, TimeUnit.SECONDS)
+                    .setForwardingPipelineConfig(req);
+        } catch (io.grpc.StatusRuntimeException sre) {
+            throw new io.github.zhh2001.jp4.error.P4PipelineException(
+                    "SetForwardingPipelineConfig failed against device " + deviceId
+                            + " at " + address + ": " + sre.getStatus(), sre);
+        }
+
+        pipeline.set(new Pipeline(p4info, deviceConfig));
+        return this;
     }
 
+    /**
+     * Fetches the device's currently-bound pipeline via
+     * {@code GetForwardingPipelineConfig(ALL)} and caches it on the switch.
+     *
+     * <p><b>Empty-pipeline contract:</b> if the device responds with
+     * {@code OK} but the returned {@code ForwardingPipelineConfig} contains no
+     * tables and an empty {@code p4_device_config}, this method throws
+     * {@link P4PipelineException} with message {@code "device has no bound pipeline"}.
+     * Callers that want to detect "no pipeline" specifically should catch the
+     * exception and inspect the message; they should not call {@code loadPipeline}
+     * speculatively as a probe.
+     *
+     * <p><b>Threading and re-entrancy.</b> This synchronous call blocks the calling
+     * thread until the RPC completes (or fails). It is safe to call from a listener
+     * callback registered via {@link #onMastershipChange} — RPC completion is
+     * delivered by gRPC's executor and does not depend on the listener callback
+     * executor, so the call will not deadlock against itself. The asynchronous
+     * variant (when added in a later release) returns {@link CompletableFuture} and
+     * runs the RPC on an internal executor without blocking the caller.
+     *
+     * @throws P4ConnectionException if the switch is closed or broken
+     * @throws P4PipelineException   on RPC failure or empty pipeline
+     */
     public P4Switch loadPipeline() {
-        requireWritable();
-        throw new UnsupportedOperationException("Not yet implemented");
+        if (closing.get()) throw new P4ConnectionException("switch is closed");
+        if (broken.get()) throw new P4ConnectionException("stream is broken");
+        StreamSession sess = session.get();
+        if (sess == null) throw new P4ConnectionException("no active session");
+
+        var req = p4.v1.P4RuntimeOuterClass.GetForwardingPipelineConfigRequest.newBuilder()
+                .setDeviceId(deviceId)
+                .setResponseType(
+                        p4.v1.P4RuntimeOuterClass.GetForwardingPipelineConfigRequest.ResponseType.ALL)
+                .build();
+
+        p4.v1.P4RuntimeOuterClass.GetForwardingPipelineConfigResponse resp;
+        try {
+            resp = p4.v1.P4RuntimeGrpc.newBlockingStub(sess.channel)
+                    .withDeadlineAfter(30, TimeUnit.SECONDS)
+                    .getForwardingPipelineConfig(req);
+        } catch (io.grpc.StatusRuntimeException sre) {
+            throw new io.github.zhh2001.jp4.error.P4PipelineException(
+                    "GetForwardingPipelineConfig failed against device " + deviceId
+                            + " at " + address + ": " + sre.getStatus(), sre);
+        }
+
+        var fpc = resp.getConfig();
+        if (fpc.getP4Info().getTablesCount() == 0 && fpc.getP4DeviceConfig().isEmpty()) {
+            throw new io.github.zhh2001.jp4.error.P4PipelineException(
+                    "device has no bound pipeline (device " + deviceId + " at " + address + ")");
+        }
+
+        P4Info loadedInfo = P4Info.fromBytes(fpc.getP4Info().toByteArray());
+        DeviceConfig loadedConfig = new DeviceConfig.Raw(fpc.getP4DeviceConfig().toByteArray());
+        pipeline.set(new Pipeline(loadedInfo, loadedConfig));
+        return this;
     }
 
+    /**
+     * Snapshot of the {@link Pipeline} currently bound to this switch, or
+     * {@code null} if no pipeline has been pushed via {@link #bindPipeline} or
+     * fetched via {@link #loadPipeline}.
+     */
     public Pipeline pipeline() {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return pipeline.get();
     }
 
     public void insert(TableEntry e) {
@@ -547,12 +660,15 @@ public final class P4Switch implements AutoCloseable {
     }
 
     private StreamMessageRequest buildArbitrationRequest() {
-        Uint128 eid = Uint128.newBuilder().setHigh(electionId.high()).setLow(electionId.low()).build();
         MasterArbitrationUpdate mau = MasterArbitrationUpdate.newBuilder()
                 .setDeviceId(deviceId)
-                .setElectionId(eid)
+                .setElectionId(buildElectionUint128())
                 .build();
         return StreamMessageRequest.newBuilder().setArbitration(mau).build();
+    }
+
+    private Uint128 buildElectionUint128() {
+        return Uint128.newBuilder().setHigh(electionId.high()).setLow(electionId.low()).build();
     }
 
     private void requireWritable() {
