@@ -140,3 +140,33 @@ canonical-form normalization, bitWidth-aware truncation), the call sites in
 refactor all internal callers to use the static factories `Match.exact(...)`,
 `Match.lpm(...)`, etc. Recorded here so the trade-off is not silently lost.
 
+## BMv2 partial-failure response format
+
+When a multi-update `WriteRequest` contains both successful and failing updates,
+BMv2's PI library returns a gRPC `StatusRuntimeException` whose
+`google.rpc.Status.details` carry **one `p4.v1.Error` per update**, including
+the updates BMv2 accepted (`canonical_code = OK`, empty `message`). Empirics
+recorded against `simple_switch_grpc` (Phase 6B): a 3-update batch with a
+duplicate-key insert at index 0 returned `[ALREADY_EXISTS, OK, OK]`, with the
+two OK updates actually applied to the table.
+
+`P4Switch.mapWriteFailure` filters out the `OK` entries when building
+`WriteResult.failures`, so per-update attribution stays accurate:
+`failures.size()` reflects only the actually-rejected updates and each
+`UpdateFailure.index()` points back to the original `Update` position.
+
+Two consequences for downstream users:
+
+1. **Partial-success is real**: BMv2 does not perform atomic batches.
+   Updates that did not appear in `WriteResult.failures` were applied to the
+   device. Production code should not assume "if any failed, none was applied"
+   and should consult `failures` to know which entries to retry.
+2. **Other targets may behave differently**: spec-compliant devices are
+   permitted to return only a top-level status without per-update details, in
+   which case `WriteResult.failures` would be empty even though the RPC
+   failed. jp4 currently treats this case as "swallowed" (the
+   `P4OperationException` is built with an empty failures list and
+   `BatchBuilderImpl.execute()` returns a `WriteResult` whose
+   `allSucceeded()` is `true`). If a real-world target surfaces this shape,
+   add a top-level marker to `WriteResult` and tighten `allSucceeded()`.
+

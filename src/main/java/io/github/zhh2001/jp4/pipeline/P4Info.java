@@ -144,6 +144,18 @@ public final class P4Info {
         return a;
     }
 
+    /**
+     * Reverse lookup: returns the action's fully-qualified name for a given numeric id,
+     * or {@code null} if the P4Info has no action by that id. Used internally to render
+     * "allowed actions" lists in validation error messages.
+     */
+    public String actionNameById(int id) {
+        for (ActionInfo a : actionsByName.values()) {
+            if (a.id() == id) return a.name();
+        }
+        return null;
+    }
+
     /** Internal access to the underlying parsed protobuf — used by P4Switch when
      *  building {@code SetForwardingPipelineConfigRequest}. */
     public P4InfoOuterClass.P4Info proto() {

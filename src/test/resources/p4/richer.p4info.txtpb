@@ -1,0 +1,84 @@
+# proto-file: p4/config/v1/p4info.proto
+# proto-message: p4.config.v1.P4Info
+
+pkg_info {
+  arch: "v1model"
+}
+tables {
+  preamble {
+    id: 39840570
+    name: "MyIngress.multi"
+    alias: "multi"
+  }
+  match_fields {
+    id: 1
+    name: "hdr.h.exact_field"
+    bitwidth: 8
+    match_type: EXACT
+  }
+  match_fields {
+    id: 2
+    name: "hdr.h.lpm_field"
+    bitwidth: 32
+    match_type: LPM
+  }
+  match_fields {
+    id: 3
+    name: "hdr.h.ternary_field"
+    bitwidth: 16
+    match_type: TERNARY
+  }
+  match_fields {
+    id: 4
+    name: "hdr.h.range_field"
+    bitwidth: 16
+    match_type: RANGE
+  }
+  action_refs {
+    id: 29683729
+  }
+  action_refs {
+    id: 30045356
+  }
+  action_refs {
+    id: 21257015
+  }
+  initial_default_action {
+    action_id: 21257015
+  }
+  size: 256
+}
+actions {
+  preamble {
+    id: 21257015
+    name: "NoAction"
+    alias: "NoAction"
+    annotations: "@noWarn(\"unused\")"
+  }
+}
+actions {
+  preamble {
+    id: 29683729
+    name: "MyIngress.forward"
+    alias: "forward"
+  }
+  params {
+    id: 1
+    name: "port"
+    bitwidth: 9
+  }
+  params {
+    id: 2
+    name: "nextHop"
+    bitwidth: 48
+  }
+}
+actions {
+  preamble {
+    id: 30045356
+    name: "MyIngress.drop_pkt"
+    alias: "drop_pkt"
+  }
+}
+type_info {
+}

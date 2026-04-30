@@ -3,8 +3,14 @@ package io.github.zhh2001.jp4;
 import io.github.zhh2001.jp4.entity.PacketIn;
 import io.github.zhh2001.jp4.entity.PacketOut;
 import io.github.zhh2001.jp4.entity.TableEntry;
+import io.github.zhh2001.jp4.entity.UpdateFailure;
+import io.github.zhh2001.jp4.error.ErrorCode;
+import io.github.zhh2001.jp4.error.OperationType;
 import io.github.zhh2001.jp4.error.P4ArbitrationLost;
 import io.github.zhh2001.jp4.error.P4ConnectionException;
+import io.github.zhh2001.jp4.error.P4OperationException;
+import io.grpc.StatusRuntimeException;
+import io.grpc.protobuf.StatusProto;
 import io.github.zhh2001.jp4.pipeline.DeviceConfig;
 import io.github.zhh2001.jp4.pipeline.P4Info;
 import io.github.zhh2001.jp4.types.ElectionId;
@@ -16,6 +22,8 @@ import p4.v1.P4RuntimeOuterClass.StreamMessageRequest;
 import p4.v1.P4RuntimeOuterClass.Uint128;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
@@ -366,36 +374,54 @@ public final class P4Switch implements AutoCloseable {
         return pipeline.get();
     }
 
+    /**
+     * Inserts a single entry into its table. Synchronous: blocks the calling thread
+     * until the device's write RPC completes (default 30 s deadline) or fails.
+     *
+     * @throws P4ConnectionException if the switch is closed, broken, not primary, or
+     *           the RPC times out
+     * @throws io.github.zhh2001.jp4.error.P4PipelineException if the entry fails
+     *           validation against the bound P4Info (field / action / kind / width)
+     * @throws io.github.zhh2001.jp4.error.P4OperationException if the device rejects
+     *           the update
+     */
     public void insert(TableEntry e) {
-        requireWritable();
-        throw new UnsupportedOperationException("Not yet implemented");
+        awaitWrite(insertAsync(e));
     }
 
+    /** See {@link #insert} — same semantics with {@code MODIFY} update type. */
     public void modify(TableEntry e) {
-        requireWritable();
-        throw new UnsupportedOperationException("Not yet implemented");
+        awaitWrite(modifyAsync(e));
     }
 
+    /**
+     * Deletes an entry by its match key; the entry's action half (if any) is ignored.
+     * See {@link #insert} for thread / exception semantics.
+     */
     public void delete(TableEntry e) {
-        requireWritable();
-        throw new UnsupportedOperationException("Not yet implemented");
+        awaitWrite(deleteAsync(e));
     }
 
     public CompletableFuture<Void> insertAsync(TableEntry e) {
-        if (closing.get() || broken.get() || !isPrimary()) {
-            CompletableFuture<Void> f = new CompletableFuture<>();
-            f.completeExceptionally(writabilityException());
-            return f;
-        }
-        throw new UnsupportedOperationException("Not yet implemented");
+        return submitWrite(e, p4.v1.P4RuntimeOuterClass.Update.Type.INSERT, OperationType.INSERT);
     }
 
-    public CompletableFuture<Void> modifyAsync(TableEntry e) { return insertAsync(e); }
-    public CompletableFuture<Void> deleteAsync(TableEntry e) { return insertAsync(e); }
+    public CompletableFuture<Void> modifyAsync(TableEntry e) {
+        return submitWrite(e, p4.v1.P4RuntimeOuterClass.Update.Type.MODIFY, OperationType.MODIFY);
+    }
+
+    public CompletableFuture<Void> deleteAsync(TableEntry e) {
+        return submitWrite(e, p4.v1.P4RuntimeOuterClass.Update.Type.DELETE, OperationType.DELETE);
+    }
 
     public BatchBuilder batch() {
         requireWritable();
-        throw new UnsupportedOperationException("Not yet implemented");
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new io.github.zhh2001.jp4.error.P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
+        return new BatchBuilderImpl(pipe);
     }
 
     public ReadQuery read(String tableName) {
@@ -685,5 +711,229 @@ public final class P4Switch implements AutoCloseable {
                             + " on device " + deviceId + ")");
         }
         return null;
+    }
+
+    /**
+     * Validates the entry, builds a single-update {@code WriteRequest}, dispatches
+     * it through the outbound serial executor, and returns a future. All write paths
+     * (sync and async) go through this — the contract that there is exactly one
+     * outbound thread per switch holds.
+     */
+    private CompletableFuture<Void> submitWrite(TableEntry entry,
+                                                p4.v1.P4RuntimeOuterClass.Update.Type updateType,
+                                                OperationType opType) {
+        // Gate first: closed/broken/secondary takes priority over null-entry check —
+        // a switch that's been closed should report the closure, not an NPE that hides it.
+        P4ConnectionException gate = writabilityException();
+        if (gate != null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(gate);
+            return f;
+        }
+        Objects.requireNonNull(entry, "entry");
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(new io.github.zhh2001.jp4.error.P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first"));
+            return f;
+        }
+
+        // Validation failures are surfaced through the returned future (consistent with the
+        // gate / pipeline-null branches above) so callers of *Async never have to catch on
+        // both the call-site and the future. Sync wrappers unwrap via awaitWrite().
+        try {
+            EntryValidator.validate(entry, pipe.p4info(), opType);
+        } catch (RuntimeException ve) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(ve);
+            return f;
+        }
+
+        StreamSession sess = session.get();
+        if (sess == null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(new P4ConnectionException("no active session"));
+            return f;
+        }
+
+        var update = p4.v1.P4RuntimeOuterClass.Update.newBuilder()
+                .setType(updateType)
+                .setEntity(p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                        .setTableEntry(EntryProto.toProto(entry, pipe.p4info()))
+                        .build())
+                .build();
+        var req = p4.v1.P4RuntimeOuterClass.WriteRequest.newBuilder()
+                .setDeviceId(deviceId)
+                .setElectionId(buildElectionUint128())
+                .addUpdates(update)
+                .build();
+
+        return dispatchWrite(req, opType, sess);
+    }
+
+    /**
+     * Dispatches a fully-built {@code WriteRequest} through the outbound serial
+     * executor. Used by single-update writes and by {@link BatchBuilderImpl} alike.
+     */
+    private CompletableFuture<Void> dispatchWrite(p4.v1.P4RuntimeOuterClass.WriteRequest req,
+                                                  OperationType opType,
+                                                  StreamSession sess) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        try {
+            outboundExecutor.execute(() -> {
+                try {
+                    P4RuntimeGrpc.newBlockingStub(sess.channel)
+                            .withDeadlineAfter(30, TimeUnit.SECONDS)
+                            .write(req);
+                    result.complete(null);
+                } catch (StatusRuntimeException sre) {
+                    result.completeExceptionally(mapWriteFailure(sre, opType));
+                } catch (RuntimeException rex) {
+                    result.completeExceptionally(rex);
+                }
+            });
+        } catch (RejectedExecutionException ree) {
+            result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+        }
+        return result;
+    }
+
+    /**
+     * Synchronous wait for a write future. Maps {@link TimeoutException} →
+     * {@link P4ConnectionException} (the spec answer for "device did not respond"),
+     * unwraps {@link ExecutionException} so user code sees the underlying
+     * {@code P4PipelineException} / {@code P4OperationException} directly, and
+     * restores the interrupt flag on {@link InterruptedException}.
+     */
+    private static void awaitWrite(CompletableFuture<Void> future) {
+        try {
+            future.get(30, TimeUnit.SECONDS);
+        } catch (TimeoutException te) {
+            throw new P4ConnectionException("write RPC timed out after 30s", te);
+        } catch (ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw new P4ConnectionException("write RPC failed", cause);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new P4ConnectionException("interrupted during write", ie);
+        }
+    }
+
+    /**
+     * Translates a gRPC {@link StatusRuntimeException} from the {@code Write} RPC
+     * into a {@link P4OperationException}. When the trailers carry a
+     * {@code google.rpc.Status} with details, each detail is unpacked as a
+     * P4Runtime {@code Error} and turned into one {@link UpdateFailure} (its
+     * {@code index} matches the Update's position in the request).
+     *
+     * <p>BMv2 sometimes returns just the gRPC status code without per-update details;
+     * in that case the resulting {@code P4OperationException} carries an empty
+     * failures list — the whole batch is treated as failed.
+     */
+    private P4OperationException mapWriteFailure(StatusRuntimeException sre, OperationType op) {
+        ErrorCode topLevel = ErrorCode.fromGrpcCode(sre.getStatus().getCode().value());
+        List<UpdateFailure> failures = new ArrayList<>();
+        com.google.rpc.Status statusProto = StatusProto.fromThrowable(sre);
+        if (statusProto != null) {
+            for (int i = 0; i < statusProto.getDetailsCount(); i++) {
+                com.google.protobuf.Any any = statusProto.getDetails(i);
+                if (any.is(p4.v1.P4RuntimeOuterClass.Error.class)) {
+                    try {
+                        var error = any.unpack(p4.v1.P4RuntimeOuterClass.Error.class);
+                        ErrorCode code = ErrorCode.fromGrpcCode(error.getCanonicalCode());
+                        // BMv2 emits one detail per update, including OK ones for the
+                        // updates the device accepted. Only the non-OK details are real
+                        // failures; OK details would otherwise pollute WriteResult.failures
+                        // and break per-update attribution.
+                        if (code == ErrorCode.OK) continue;
+                        failures.add(new UpdateFailure(i, code, error.getMessage()));
+                    } catch (com.google.protobuf.InvalidProtocolBufferException ignored) {
+                        // Detail couldn't be unpacked; skip.
+                    }
+                }
+            }
+        }
+        return new P4OperationException(
+                op + " failed against device " + deviceId + ": " + sre.getStatus(),
+                op,
+                topLevel,
+                failures);
+    }
+
+    /**
+     * Internal {@link BatchBuilder} implementation. Validates each entry as it is
+     * added (so the call site fails fast on a bad entry) and accumulates the wire
+     * {@code Update} list. {@link #execute()} sends one {@code WriteRequest} for the
+     * whole batch through the same outbound path used by single-update writes.
+     */
+    private final class BatchBuilderImpl implements BatchBuilder {
+
+        private final Pipeline pipe;
+        private final List<p4.v1.P4RuntimeOuterClass.Update> updates = new ArrayList<>();
+        private int submitted = 0;
+
+        BatchBuilderImpl(Pipeline pipe) {
+            this.pipe = pipe;
+        }
+
+        @Override
+        public BatchBuilder insert(TableEntry e) {
+            return add(e, p4.v1.P4RuntimeOuterClass.Update.Type.INSERT, OperationType.INSERT);
+        }
+
+        @Override
+        public BatchBuilder modify(TableEntry e) {
+            return add(e, p4.v1.P4RuntimeOuterClass.Update.Type.MODIFY, OperationType.MODIFY);
+        }
+
+        @Override
+        public BatchBuilder delete(TableEntry e) {
+            return add(e, p4.v1.P4RuntimeOuterClass.Update.Type.DELETE, OperationType.DELETE);
+        }
+
+        @Override
+        public WriteResult execute() {
+            requireWritable();
+            StreamSession sess = session.get();
+            if (sess == null) throw new P4ConnectionException("no active session");
+            var req = p4.v1.P4RuntimeOuterClass.WriteRequest.newBuilder()
+                    .setDeviceId(deviceId)
+                    .setElectionId(buildElectionUint128())
+                    .addAllUpdates(updates)
+                    .build();
+            try {
+                dispatchWrite(req, OperationType.INSERT, sess).get(30, TimeUnit.SECONDS);
+                return new WriteResult(submitted, List.of());
+            } catch (TimeoutException te) {
+                throw new P4ConnectionException("batch write RPC timed out after 30s", te);
+            } catch (ExecutionException ee) {
+                Throwable cause = ee.getCause();
+                if (cause instanceof P4OperationException p4op) {
+                    return new WriteResult(submitted, p4op.failures());
+                }
+                if (cause instanceof RuntimeException re) throw re;
+                throw new P4ConnectionException("batch write RPC failed", cause);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new P4ConnectionException("interrupted during batch write", ie);
+            }
+        }
+
+        private BatchBuilder add(TableEntry e,
+                                 p4.v1.P4RuntimeOuterClass.Update.Type updateType,
+                                 OperationType opType) {
+            Objects.requireNonNull(e, "entry");
+            EntryValidator.validate(e, pipe.p4info(), opType);
+            updates.add(p4.v1.P4RuntimeOuterClass.Update.newBuilder()
+                    .setType(updateType)
+                    .setEntity(p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                            .setTableEntry(EntryProto.toProto(e, pipe.p4info()))
+                            .build())
+                    .build());
+            submitted++;
+            return this;
+        }
     }
 }
