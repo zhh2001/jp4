@@ -213,8 +213,8 @@ class SpecComplianceTest {
         });
 
         try {
-            PacketIn p = sw.pollPacketIn(Duration.ofSeconds(1));
-            if (p != null) { /* ... */ }
+            sw.pollPacketIn(Duration.ofSeconds(1))
+                    .ifPresent(p -> { /* ... */ });
         } catch (InterruptedException ignored) {
         }
 
@@ -285,9 +285,8 @@ class SpecComplianceTest {
     // Construction-side coverage moves to TableEntryTest; P4Info-driven validation
     // coverage lives in the integration tests written in Phase 6B.
 
-    @Test
-    void scenarioE_packetOutBuildThrowsUOE() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> PacketOut.builder().payload(new byte[]{1}).metadata("p", 1).build());
-    }
+    // Phase 7 made PacketOut.build() real; the prior UOE assertion is removed.
+    // Behaviour coverage moves to PacketIoTest's serialise / metadata round-trip
+    // scenarios. The scenarioE_compiles() compile-only method above still
+    // exercises the full v3 §5 Scenario E call shape against the real types.
 }

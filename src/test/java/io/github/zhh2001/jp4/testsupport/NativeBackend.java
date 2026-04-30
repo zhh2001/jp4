@@ -105,7 +105,8 @@ final class NativeBackend implements Bmv2Backend {
                 "-L", "info",
                 "-i", "0@" + iface,
                 "--",
-                "--grpc-server-addr", "127.0.0.1:" + port
+                "--grpc-server-addr", "127.0.0.1:" + port,
+                "--cpu-port", "255"         // Phase 7: triggers PacketIn when egress_spec == 255
         );
         this.process = new ProcessBuilder(cmd)
                 .redirectOutput(log.toFile())

@@ -71,7 +71,8 @@ final class DockerBackend implements Bmv2Backend {
                                 "-L", "info",
                                 "-i", "0@lo",
                                 "--",
-                                "--grpc-server-addr", "0.0.0.0:" + CONTAINER_GRPC_PORT
+                                "--grpc-server-addr", "0.0.0.0:" + CONTAINER_GRPC_PORT,
+                                "--cpu-port", "255"    // Phase 7: PacketIn on egress_spec=255
                         )
                         .waitingFor(Wait.forListeningPort()
                                 .withStartupTimeout(STARTUP_TIMEOUT));
@@ -136,7 +137,8 @@ final class DockerBackend implements Bmv2Backend {
                                 "-L", "info",
                                 "-i", "0@lo",
                                 "--",
-                                "--grpc-server-addr", "0.0.0.0:" + CONTAINER_GRPC_PORT
+                                "--grpc-server-addr", "0.0.0.0:" + CONTAINER_GRPC_PORT,
+                                "--cpu-port", "255"    // Phase 7: PacketIn on egress_spec=255
                         )
                         .waitingFor(Wait.forListeningPort()
                                 .withStartupTimeout(STARTUP_TIMEOUT));

@@ -36,6 +36,12 @@ public final class P4Info {
     private final Map<String, ActionInfo> actionsByName;
     private final Map<Integer, TableInfo> tablesById;
     private final Map<Integer, ActionInfo> actionsById;
+    private final List<PacketMetadataInfo> packetInMetadata;
+    private final List<PacketMetadataInfo> packetOutMetadata;
+    private final Map<String, PacketMetadataInfo> packetInByName;
+    private final Map<String, PacketMetadataInfo> packetOutByName;
+    private final Map<Integer, PacketMetadataInfo> packetInById;
+    private final Map<Integer, PacketMetadataInfo> packetOutById;
 
     private P4Info(P4InfoOuterClass.P4Info proto) {
         this.proto = proto;
@@ -47,6 +53,43 @@ public final class P4Info {
         Map<Integer, ActionInfo> aById = new HashMap<>(this.actionsByName.size() * 2);
         for (ActionInfo a : this.actionsByName.values()) aById.put(a.id(), a);
         this.actionsById = Map.copyOf(aById);
+
+        // controller_packet_metadata: P4Info has zero or more declarations, each
+        // with a header name ("packet_in" / "packet_out") and a list of fields.
+        // jp4 surfaces only the two named declarations the spec defines for
+        // PacketIn / PacketOut; other names (custom CPU headers etc.) are ignored.
+        List<PacketMetadataInfo> in = new ArrayList<>();
+        List<PacketMetadataInfo> out = new ArrayList<>();
+        for (P4InfoOuterClass.ControllerPacketMetadata cpm : proto.getControllerPacketMetadataList()) {
+            String name = cpm.getPreamble().getName();
+            List<PacketMetadataInfo> sink = switch (name) {
+                case "packet_in"  -> in;
+                case "packet_out" -> out;
+                default -> null;
+            };
+            if (sink == null) continue;
+            for (P4InfoOuterClass.ControllerPacketMetadata.Metadata md : cpm.getMetadataList()) {
+                sink.add(new PacketMetadataInfo(md.getId(), md.getName(), md.getBitwidth()));
+            }
+        }
+        this.packetInMetadata  = List.copyOf(in);
+        this.packetOutMetadata = List.copyOf(out);
+        this.packetInByName   = indexByName(this.packetInMetadata);
+        this.packetOutByName  = indexByName(this.packetOutMetadata);
+        this.packetInById     = indexById(this.packetInMetadata);
+        this.packetOutById    = indexById(this.packetOutMetadata);
+    }
+
+    private static Map<String, PacketMetadataInfo> indexByName(List<PacketMetadataInfo> list) {
+        Map<String, PacketMetadataInfo> out = new HashMap<>(list.size() * 2);
+        for (PacketMetadataInfo m : list) out.put(m.name(), m);
+        return Map.copyOf(out);
+    }
+
+    private static Map<Integer, PacketMetadataInfo> indexById(List<PacketMetadataInfo> list) {
+        Map<Integer, PacketMetadataInfo> out = new HashMap<>(list.size() * 2);
+        for (PacketMetadataInfo m : list) out.put(m.id(), m);
+        return Map.copyOf(out);
     }
 
     /**
@@ -179,6 +222,65 @@ public final class P4Info {
      */
     public ActionInfo actionInfoById(int id) {
         return actionsById.get(id);
+    }
+
+    /**
+     * Fields declared on the {@code @controller_header("packet_in")} header in P4Info,
+     * in declaration order. Empty list when the P4 program does not declare a
+     * controller PacketIn header (in which case any received PacketIn message will
+     * carry no metadata fields, only payload).
+     */
+    public List<PacketMetadataInfo> packetInMetadata() {
+        return packetInMetadata;
+    }
+
+    /**
+     * Fields declared on the {@code @controller_header("packet_out")} header in P4Info,
+     * in declaration order. Empty list when the P4 program does not declare a
+     * controller PacketOut header.
+     */
+    public List<PacketMetadataInfo> packetOutMetadata() {
+        return packetOutMetadata;
+    }
+
+    /**
+     * Looks up a PacketIn metadata field by name. Throws {@link P4PipelineException}
+     * with the known-list message style used elsewhere in jp4 if the field is not
+     * declared on the P4 program's {@code packet_in} controller header.
+     */
+    public PacketMetadataInfo packetInField(String name) {
+        PacketMetadataInfo m = packetInByName.get(name);
+        if (m == null) {
+            throw new P4PipelineException(
+                    "no PacketIn metadata field named '" + name + "' in P4Info "
+                            + "(known: " + packetInByName.keySet() + ")");
+        }
+        return m;
+    }
+
+    /** Same as {@link #packetInField(String)} but for the {@code packet_out} header. */
+    public PacketMetadataInfo packetOutField(String name) {
+        PacketMetadataInfo m = packetOutByName.get(name);
+        if (m == null) {
+            throw new P4PipelineException(
+                    "no PacketOut metadata field named '" + name + "' in P4Info "
+                            + "(known: " + packetOutByName.keySet() + ")");
+        }
+        return m;
+    }
+
+    /**
+     * Reverse lookup of a PacketIn metadata field by numeric id, or {@code null} when
+     * the device sent an id that the bound P4Info does not declare. Used by the
+     * inbound packet parser to surface device / P4Info drift loudly.
+     */
+    public PacketMetadataInfo packetInFieldById(int id) {
+        return packetInById.get(id);
+    }
+
+    /** Reverse lookup for {@code packet_out}; null when unknown. */
+    public PacketMetadataInfo packetOutFieldById(int id) {
+        return packetOutById.get(id);
     }
 
     /** Internal access to the underlying parsed protobuf — used by P4Switch when

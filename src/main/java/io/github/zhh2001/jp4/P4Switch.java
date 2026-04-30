@@ -141,6 +141,18 @@ public final class P4Switch implements AutoCloseable {
 
     private final AtomicReference<Pipeline> pipeline = new AtomicReference<>();
 
+    /** PacketIn fan-out plumbing: SubmissionPublisher for the {@code packetInStream}
+     *  multi-subscriber path, a bounded deque for {@code pollPacketIn}, and a single
+     *  replaceable handler for {@code onPacketIn}. Fan-out semantics — each PacketIn
+     *  is delivered to every active sink. See v3 §D6 / §5 Scenario E. */
+    private static final int PACKET_QUEUE_CAPACITY = 1024;
+    private final java.util.concurrent.SubmissionPublisher<PacketIn> packetPublisher;
+    private final java.util.concurrent.LinkedBlockingDeque<PacketIn> packetDeque
+            = new java.util.concurrent.LinkedBlockingDeque<>(PACKET_QUEUE_CAPACITY);
+    private volatile Consumer<PacketIn> packetHandler;
+
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(P4Switch.class);
+
     P4Switch(String address,
              long deviceId,
              ElectionId electionId,
@@ -164,6 +176,11 @@ public final class P4Switch implements AutoCloseable {
         this.session.set(initialSession);
         this.currentGeneration.set(initialSession.generation);
         this.mastership.set(initialMastership);
+        // Subscriber callbacks share callbackExecutor with onPacketIn / onMastershipChange,
+        // preserving the FIFO single-thread contract. Buffer per subscriber matches the
+        // poll-deque capacity for symmetry.
+        this.packetPublisher = new java.util.concurrent.SubmissionPublisher<>(
+                callbackExecutor, PACKET_QUEUE_CAPACITY);
     }
 
     public static P4Switch connectAsPrimary(String address) {
@@ -471,22 +488,171 @@ public final class P4Switch implements AutoCloseable {
         return new ReadQueryImpl(tableName, pipe);
     }
 
+    /**
+     * Registers a single packet-in handler. Last-write-wins: calling this method
+     * again replaces the prior handler. The callback runs on the same single-threaded
+     * callback executor as {@code onMastershipChange}, so a slow handler holds up
+     * subsequent packet dispatches but does not affect the gRPC inbound thread.
+     *
+     * <p>Mixes cleanly with {@link #packetInStream()} and {@link #pollPacketIn(Duration)}:
+     * each PacketIn is fanned out to the active handler, every subscriber, and the
+     * poll deque (see v3 §D6 / §5 Scenario E).
+     */
     public void onPacketIn(Consumer<PacketIn> handler) {
         Objects.requireNonNull(handler, "handler");
-        throw new UnsupportedOperationException("Not yet implemented");
+        packetHandler = handler;
     }
 
+    /**
+     * Returns the multi-subscriber {@link Flow.Publisher} fed by inbound PacketIn
+     * messages. Each subscriber sees every PacketIn (Reactive Streams fan-out).
+     * Subscribing or cancelling does not affect other subscribers, the registered
+     * handler, or the poll deque.
+     */
     public Flow.Publisher<PacketIn> packetInStream() {
-        throw new UnsupportedOperationException("Not yet implemented");
+        return packetPublisher;
     }
 
-    public PacketIn pollPacketIn(Duration timeout) throws InterruptedException {
-        throw new UnsupportedOperationException("Not yet implemented");
+    /**
+     * Pulls the next PacketIn from the inbound deque, waiting up to {@code timeout}.
+     * Returns {@link Optional#empty()} on timeout. Independent of the handler / Flow
+     * subscribers — every PacketIn is also offered to this deque (capacity
+     * {@value #PACKET_QUEUE_CAPACITY}); excess is dropped with a log warning.
+     */
+    public Optional<PacketIn> pollPacketIn(Duration timeout) throws InterruptedException {
+        Objects.requireNonNull(timeout, "timeout");
+        long ms = Math.max(0L, timeout.toMillis());
+        PacketIn p = packetDeque.pollFirst(ms, TimeUnit.MILLISECONDS);
+        return Optional.ofNullable(p);
     }
 
+    /**
+     * Sends a single PacketOut to the device via the StreamChannel. Synchronous: blocks
+     * the caller until the request has been handed to gRPC's outbound writer (or until
+     * it fails). Equivalent to {@code awaitWrite(sendAsync(packet))} — see
+     * {@link #sendAsync(PacketOut)} for the future-based variant.
+     *
+     * @throws P4ConnectionException if the switch is closed, broken, or not primary
+     * @throws P4PipelineException   on PacketOut serialisation errors (unknown
+     *                               metadata field, value too wide for declared bits)
+     */
     public void send(PacketOut packet) {
-        requireWritable();
-        throw new UnsupportedOperationException("Not yet implemented");
+        awaitWrite(sendAsync(packet));
+    }
+
+    /**
+     * Async variant of {@link #send(PacketOut)}. Validation / serialisation failures
+     * land in the returned future (consistent with {@code insertAsync} / {@code
+     * modifyAsync} / {@code deleteAsync} — see Phase 6B decision 5).
+     */
+    public CompletableFuture<Void> sendAsync(PacketOut packet) {
+        P4ConnectionException gate = writabilityException();
+        if (gate != null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(gate);
+            return f;
+        }
+        Objects.requireNonNull(packet, "packet");
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first"));
+            return f;
+        }
+
+        p4.v1.P4RuntimeOuterClass.PacketOut wirePacket;
+        try {
+            wirePacket = PacketProto.serialize(packet, pipe.p4info());
+        } catch (RuntimeException ve) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(ve);
+            return f;
+        }
+
+        StreamSession sess = session.get();
+        if (sess == null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(new P4ConnectionException("no active session"));
+            return f;
+        }
+
+        var req = StreamMessageRequest.newBuilder()
+                .setPacket(wirePacket)
+                .build();
+
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        try {
+            outboundExecutor.execute(() -> {
+                try {
+                    sess.reqObserver.onNext(req);
+                    result.complete(null);
+                } catch (RuntimeException re) {
+                    result.completeExceptionally(re);
+                }
+            });
+        } catch (RejectedExecutionException ree) {
+            result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+        }
+        return result;
+    }
+
+    /**
+     * Package-private, called by {@link InboundStreamHandler#onNext} on the gRPC
+     * inbound thread. Parses the wire PacketIn, then fans out to the three sinks:
+     * the registered handler (if any) on the callback executor, the
+     * {@link SubmissionPublisher} (multi-subscriber, non-blocking offer), and the
+     * poll deque (drop on full). All three sinks are independent — failures or
+     * back-pressure on one do not affect the others.
+     *
+     * <p>If parsing throws (unknown metadata id), the packet is dropped with a log
+     * warn — same fail-fast spirit as 6C reverse-parse but on a per-packet basis,
+     * since one bad packet should not poison the whole stream.
+     */
+    void dispatchPacketIn(p4.v1.P4RuntimeOuterClass.PacketIn proto) {
+        if (closing.get()) return;
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            LOG.warn("dropping PacketIn on device {}: no pipeline bound", deviceId);
+            return;
+        }
+        final PacketIn parsed;
+        try {
+            parsed = PacketProto.parseIn(proto, pipe.p4info());
+        } catch (RuntimeException re) {
+            LOG.warn("dropping PacketIn on device {} that failed to parse: {}",
+                    deviceId, re.getMessage());
+            return;
+        }
+        // 1. Single replaceable handler.
+        Consumer<PacketIn> h = packetHandler;
+        if (h != null) {
+            try {
+                callbackExecutor.execute(() -> {
+                    try {
+                        h.accept(parsed);
+                    } catch (RuntimeException re) {
+                        LOG.warn("PacketIn handler threw on device {}: {}",
+                                deviceId, re.toString());
+                    }
+                });
+            } catch (RejectedExecutionException ignored) {
+                // Switch is closing; handler dispatch is best-effort.
+            }
+        }
+        // 2. Flow.Publisher subscribers — non-blocking offer; drop on full.
+        if (packetPublisher.hasSubscribers()) {
+            packetPublisher.offer(parsed, 0L, TimeUnit.MILLISECONDS, (sub, item) -> {
+                LOG.warn("dropping PacketIn for slow subscriber on device {}", deviceId);
+                return false;       // drop, do not retry
+            });
+        }
+        // 3. Poll deque — non-blocking offer; drop oldest? No: drop newest with warn.
+        //    (Dropping oldest would silently lose packets users had already queued for poll.)
+        if (!packetDeque.offerLast(parsed)) {
+            LOG.warn("packet deque full (capacity {}) on device {}; dropping PacketIn",
+                    PACKET_QUEUE_CAPACITY, deviceId);
+        }
     }
 
     /**
@@ -510,6 +676,13 @@ public final class P4Switch implements AutoCloseable {
         if (w != null) {
             w.completeExceptionally(new P4ConnectionException("switch closed"));
         }
+
+        // 2b. Tear down PacketIn fan-out: signal subscribers (onComplete), drop the
+        //     poll deque, and clear the handler. In-flight callback executor tasks
+        //     drain naturally; new dispatches are blocked by the closing flag.
+        packetPublisher.close();
+        packetDeque.clear();
+        packetHandler = null;
 
         // 3. Run the actual cleanup on a fresh daemon thread; pass caller-thread
         //    identity so doClose can skip self-shutdown of the calling executor.

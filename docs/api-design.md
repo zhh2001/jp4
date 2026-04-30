@@ -161,8 +161,12 @@ sw.packetInStream().subscribe(subscriber);               // 2. Flow.Publisher (b
 PacketIn p = sw.pollPacketIn(Duration.ofSeconds(1));     // 3. blocking pull
 ```
 
-All three feed off the same underlying gRPC stream. The first registered consumer wins;
-mixing styles is allowed but not recommended.
+All three feed off the same internal packet stream. Each PacketIn is delivered to the
+active `onPacketIn` handler, to every `packetInStream` subscriber, and offered to the
+`pollPacketIn` deque. Mixing styles is supported and well-defined; choose the style
+that matches your code's concurrency model. The active `onPacketIn` handler is single
+— calling `onPacketIn` again replaces the prior handler. The `packetInStream`
+subscriber list is unbounded — every subscriber sees every packet.
 
 ### D7. Entry construction: build first, execute via switch
 
@@ -624,8 +628,8 @@ sw.packetInStream().subscribe(new Flow.Subscriber<PacketIn>() {
 });
 
 // Power-user: blocking pull.
-PacketIn p = sw.pollPacketIn(Duration.ofSeconds(1));
-if (p != null) { /* ... */ }
+sw.pollPacketIn(Duration.ofSeconds(1))
+        .ifPresent(p -> { /* ... */ });
 ```
 
 **Bridging to Reactor / RxJava.** `Flow.Publisher` is the JDK-native shape; users on

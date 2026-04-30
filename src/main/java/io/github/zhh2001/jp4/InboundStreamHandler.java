@@ -71,8 +71,17 @@ final class InboundStreamHandler implements StreamObserver<StreamMessageResponse
                 local.completeReArbitration(newStatus);
                 local.dispatchMastership(newStatus);
             }
+            return;
         }
-        // PacketIn / Digest / IdleTimeout messages: ignored in v0.1 (Phase 7+ work).
+        if (msg.hasPacket()) {
+            P4Switch local = sw;
+            if (local == null || local.currentGeneration() != generation) {
+                return;     // stale or pre-attach: drop
+            }
+            local.dispatchPacketIn(msg.getPacket());
+            return;
+        }
+        // Digest / IdleTimeout messages: ignored in v0.1 (v0.2 work).
     }
 
     @Override
