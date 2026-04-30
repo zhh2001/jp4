@@ -62,7 +62,12 @@ class MastershipDispatchTest {
                 }
             });
 
-            try (P4Switch b = P4Switch.connect(bmv2.grpcAddress()).electionId(99L).asPrimary()) {
+            // B's connect uses the retry helper to absorb the BMv2 Docker
+            // mastership-transition quirk (see NOTES.md). Without retry, B's first
+            // arbitration response occasionally surfaces as onError and the test
+            // fails before A's listener can ever run.
+            P4Switch b = BMv2TestSupport.connectPrimaryWithRetry(bmv2.grpcAddress(), 99L, 3);
+            try {
                 assertTrue(b.isPrimary());
 
                 assertTrue(reArbDone.await(15, TimeUnit.SECONDS),
@@ -71,6 +76,8 @@ class MastershipDispatchTest {
                 assertNotNull(t, "callback's asPrimary must surface an outcome");
                 assertInstanceOf(P4ConnectionException.class, t,
                         "callback's asPrimary should fail with a connection-class exception, got: " + t);
+            } finally {
+                b.close();
             }
         }
     }
@@ -99,13 +106,18 @@ class MastershipDispatchTest {
                     }
                 });
 
-                try (P4Switch b = P4Switch.connect(bmv2.grpcAddress()).electionId(99L).asPrimary()) {
+                // B's connect uses the retry helper for the same Docker quirk reason
+                // documented on callbackCanCallAsPrimaryWithoutDeadlock above.
+                P4Switch b = BMv2TestSupport.connectPrimaryWithRetry(bmv2.grpcAddress(), 99L, 3);
+                try {
                     assertTrue(b.isPrimary());
 
                     assertTrue(closeReturned.await(10, TimeUnit.SECONDS),
                             "close() called from inside the callback must return");
                     assertNull(closeError.get(),
                             "close() from callback should not throw, got: " + closeError.get());
+                } finally {
+                    b.close();
                 }
             } finally {
                 a.close();   // idempotent

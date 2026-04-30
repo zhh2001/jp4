@@ -89,3 +89,41 @@ not, depending on which target it wraps. We deliberately do not encode any
 target-specific assumption in jp4 — the user supplies p4info and deviceConfig,
 the device decides.
 
+## BMv2 Docker mastership transition behaviour
+
+When two clients arbitrate for primary on the same device against the Docker
+BMv2 image (`p4lang/behavioral-model`), the mastership transition occasionally
+surfaces as a stream error on the new client's StreamChannel — typically observed
+as a gRPC `StatusRuntimeException` on the second client's first
+`MasterArbitrationUpdate` response path, even though the new client should have
+become primary cleanly. Verified experimentally during Phase 5 CI runs against
+`p4lang/behavioral-model:latest`: the failure rate is on the order of 1 in 3
+repetitions of an A→B preemption test.
+
+This behaviour does not appear with native BMv2 (locally compiled
+`simple_switch_grpc`), which suggests a difference in the PI library's internal
+mastership-change notification path between BMv2 build configurations. The
+P4Runtime spec does not require that the new primary's first arbitration RPC
+succeed without stream interruption, so the device behaviour is technically
+spec-compliant.
+
+### jp4's position
+
+The connector layer does <b>not</b> work around this. The library relays the
+device's response and reports `P4ConnectionException` on stream error, which is
+what the spec describes.
+
+Tests that exercise the "second client takes primary" pattern wrap the new
+client's connect in `BMv2TestSupport.connectPrimaryWithRetry(addr, eid, 3)`
+(3 attempts, 200 ms back-off). The retry helper is in `testsupport/` only;
+no production code path uses it.
+
+### Recommendation for downstream users
+
+Production controllers running against Docker BMv2 should consider similar retry
+logic around `P4Switch.connect`. Note that the existing connector-level
+`reconnectPolicy` covers the <i>stream-level</i> reconnect path (broken stream
+on an already-arbitrated switch) and does NOT apply to the initial connect; the
+two retry concerns are independent. A future jp4 release may add an
+initial-connect retry option if real-world demand surfaces.
+

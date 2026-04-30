@@ -95,15 +95,28 @@ class ArbitrationTest {
     /**
      * Scenario e: two clients on the same device; the higher election id wins primary,
      * the lower one is demoted to secondary on receipt of the next arbitration message.
+     *
+     * <p>The lower client's listener may receive more than one mastership event when
+     * B's connect is retried for the BMv2 Docker mastership-transition quirk (see
+     * NOTES.md). Strict assertions on {@code previousElectionId} therefore use the
+     * <b>first</b> Lost event in the listener log — that one corresponds to the
+     * Acquired→Lost transition with full provenance. Any subsequent Lost events from
+     * retry-induced refreshes carry {@code null} for {@code previousElectionId}
+     * because {@code parseArbitration} only populates it when transitioning out of
+     * the Acquired state.
      */
     @Test
-    void higherElectionIdWinsAndDemotesIncumbent() {
+    void higherElectionIdWinsAndDemotesIncumbent() throws Exception {
         try (P4Switch lower = P4Switch.connect(bmv2.grpcAddress())
                 .electionId(1L).asPrimary()) {
             assertTrue(lower.isPrimary(), "alone, low-id client holds primary");
+            java.util.List<MastershipStatus> events =
+                    new java.util.concurrent.CopyOnWriteArrayList<>();
+            lower.onMastershipChange(events::add);
 
-            try (P4Switch higher = P4Switch.connect(bmv2.grpcAddress())
-                    .electionId(99L).asPrimary()) {
+            P4Switch higher = io.github.zhh2001.jp4.testsupport.BMv2TestSupport
+                    .connectPrimaryWithRetry(bmv2.grpcAddress(), 99L, 3);
+            try {
                 assertTrue(higher.isPrimary(), "higher election id steals primary");
 
                 // The demotion message arrives asynchronously; wait for it to land.
@@ -112,12 +125,25 @@ class ArbitrationTest {
                         .until(() -> !lower.isPrimary());
 
                 assertFalse(lower.isPrimary(), "lower election id has been demoted");
-                MastershipStatus.Lost lost = assertInstanceOf(
+                MastershipStatus.Lost finalState = assertInstanceOf(
                         MastershipStatus.Lost.class, lower.mastership());
-                assertEquals(ElectionId.of(99L), lost.currentPrimaryElectionId(),
-                        "Lost should report new primary's election id");
-                assertEquals(ElectionId.of(1L), lost.previousElectionId(),
-                        "Lost should report the election id we held");
+                assertEquals(ElectionId.of(99L), finalState.currentPrimaryElectionId(),
+                        "final Lost snapshot should report new primary's election id");
+
+                // Strict provenance assertions on the FIRST Lost event in the log.
+                assertTrue(events.stream().anyMatch(e -> e instanceof MastershipStatus.Lost),
+                        "must observe at least one Lost event, got: " + events);
+                MastershipStatus.Lost firstLost = events.stream()
+                        .filter(e -> e instanceof MastershipStatus.Lost)
+                        .map(e -> (MastershipStatus.Lost) e)
+                        .findFirst()
+                        .orElseThrow();
+                assertEquals(ElectionId.of(99L), firstLost.currentPrimaryElectionId(),
+                        "first Lost should report new primary's election id");
+                assertEquals(ElectionId.of(1L), firstLost.previousElectionId(),
+                        "first Lost should report the election id we held (1)");
+            } finally {
+                higher.close();
             }
         }
     }

@@ -1,5 +1,7 @@
 package io.github.zhh2001.jp4.testsupport;
 
+import io.github.zhh2001.jp4.P4Switch;
+import io.github.zhh2001.jp4.error.P4ConnectionException;
 import org.junit.jupiter.api.Assumptions;
 
 import java.io.IOException;
@@ -93,6 +95,37 @@ public final class BMv2TestSupport implements AutoCloseable {
      *  skip OS-pid-specific assertions). */
     public static boolean isDockerMode() {
         return "docker".equals(currentMode());
+    }
+
+    /**
+     * Connects as primary with bounded retries to absorb the BMv2 Docker
+     * mastership-transition quirk documented in NOTES.md ("BMv2 Docker mastership
+     * transition behaviour"). Used <b>only</b> by tests that require a
+     * "second client takes primary" scenario; production code should not need this.
+     *
+     * <p>{@code maxAttempts} retries are catch-only on {@link P4ConnectionException}
+     * — any other failure (assertion, runtime exception) propagates immediately.
+     * Between attempts there is a 200&nbsp;ms back-off. After all attempts fail,
+     * an {@link AssertionError} is raised carrying the last connection error so the
+     * test failure clearly identifies the connect path as the cause.
+     */
+    public static P4Switch connectPrimaryWithRetry(String address,
+                                                   long electionId,
+                                                   int maxAttempts) throws InterruptedException {
+        P4ConnectionException last = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return P4Switch.connect(address).electionId(electionId).asPrimary();
+            } catch (P4ConnectionException e) {
+                last = e;
+                if (attempt < maxAttempts) Thread.sleep(200);
+            }
+        }
+        throw new AssertionError(
+                "Failed to connect as primary after " + maxAttempts
+                        + " attempts (last error: "
+                        + (last != null ? last.getMessage() : "n/a") + ")",
+                last);
     }
 
     public BMv2TestSupport start() throws IOException, InterruptedException {
