@@ -16,3 +16,6 @@ out/
 # OS files
 .DS_Store
 Thumbs.db
+
+# p4c intermediate compilation artefacts (not source, not deliverable)
+*.p4i

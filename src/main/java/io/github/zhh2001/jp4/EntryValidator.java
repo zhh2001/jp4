@@ -21,9 +21,9 @@ import java.util.TreeSet;
  * Package-private validator that checks a {@link TableEntry} against a bound
  * {@link P4Info} before a write or read RPC is sent. Six rules are enforced (see
  * the body of {@link #validate}); each failure throws {@link P4PipelineException}
- * with a "known-list" message — the contract written into the project memory at
- * Phase 6 entry as the UX compensation for deferring P4Info validation out of
- * {@code TableEntry.in(...)}.
+ * with a "known-list" message naming the candidate set, so a typo at the call site
+ * is diagnosed without the user reading the P4Info file. This compensates for
+ * deferring P4Info validation out of {@code TableEntry.in(...)} construction.
  */
 final class EntryValidator {
 

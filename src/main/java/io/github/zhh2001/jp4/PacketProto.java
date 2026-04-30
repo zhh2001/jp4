@@ -26,8 +26,8 @@ import java.util.Map;
  * forward index, canonicalising the payload AS-IS (the spec defines the payload
  * as the raw packet bytes, no canonicalisation), and canonicalising metadata
  * values via {@link Bytes#canonical()} at the wire boundary like
- * {@link EntryProto}. The known-list message style from 6B applies on unknown
- * field names.
+ * {@link EntryProto}. Unknown field names surface with the same known-list error
+ * style used elsewhere in jp4.
  */
 final class PacketProto {
 

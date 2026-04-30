@@ -99,16 +99,12 @@ import java.util.stream.StreamSupport;
  * the switch mid-attempt. Reconnect can be disabled with
  * {@link ReconnectPolicy#noRetry()} (the default).
  *
- * @implNote Connection, arbitration, mastership-change events, the synchronous and
- *           idempotent forms of {@code asPrimary}, {@code close}, and the read-only
- *           accessors are real as of v0.1.0. Pipeline push, table operations, packet
- *           I/O, and the read query builder still throw
- *           {@link UnsupportedOperationException}; behaviour lands in later v0.1.0
- *           milestones (Phase 5 = pipeline, Phase 6 = entries, Phase 7 = packets).
- *           Write-side methods enforce the primary-state precondition before throwing
- *           UOE — a switch obtained via {@code asSecondary()} or one demoted by a
- *           higher election id surfaces {@link P4ConnectionException}, not UOE, when a
- *           write is attempted.
+ * @implNote Write-side methods (insert / modify / delete / batch / send) enforce the
+ *           primary-state precondition: a switch obtained via {@code asSecondary()},
+ *           or one demoted by a higher election id, surfaces {@link P4ConnectionException}
+ *           when a write is attempted. Read-side methods ({@code read},
+ *           {@code pollPacketIn}, {@code packetInStream}) work on secondary clients per
+ *           P4Runtime spec §6.4; only the gate on closed/broken stream applies.
  *
  * @since 0.1.0
  */
@@ -542,8 +538,9 @@ public final class P4Switch implements AutoCloseable {
 
     /**
      * Async variant of {@link #send(PacketOut)}. Validation / serialisation failures
-     * land in the returned future (consistent with {@code insertAsync} / {@code
-     * modifyAsync} / {@code deleteAsync} — see Phase 6B decision 5).
+     * land in the returned future, consistent with {@code insertAsync} / {@code
+     * modifyAsync} / {@code deleteAsync} — methods that return a future report
+     * failures through the future, never by throwing on the calling thread.
      */
     public CompletableFuture<Void> sendAsync(PacketOut packet) {
         P4ConnectionException gate = writabilityException();
@@ -606,8 +603,8 @@ public final class P4Switch implements AutoCloseable {
      * back-pressure on one do not affect the others.
      *
      * <p>If parsing throws (unknown metadata id), the packet is dropped with a log
-     * warn — same fail-fast spirit as 6C reverse-parse but on a per-packet basis,
-     * since one bad packet should not poison the whole stream.
+     * warn. Read-side reverse parse is fail-fast on unknown ids; here it is
+     * fail-open per-packet, so one malformed packet does not poison the stream.
      */
     void dispatchPacketIn(p4.v1.P4RuntimeOuterClass.PacketIn proto) {
         if (closing.get()) return;

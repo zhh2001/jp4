@@ -123,8 +123,8 @@ final class EntryProto {
      * <p>Tables that are part of an action profile / selector return wire entries whose
      * {@code TableAction} carries an {@code action_profile_member_id} or
      * {@code action_profile_group_id} instead of an inline {@code Action} — these are
-     * v0.2 work and surface as {@link P4PipelineException} with a descriptive message;
-     * 6C's read RPC reads direct-action tables only.
+     * v0.2 work and surface as {@link P4PipelineException} with a descriptive message.
+     * The v0.1 read RPC reads direct-action tables only.
      */
     static TableEntry fromProto(p4.v1.P4RuntimeOuterClass.TableEntry proto, P4Info p4info) {
         TableInfo table = p4info.tableInfoById(proto.getTableId());

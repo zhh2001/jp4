@@ -8,9 +8,10 @@ import io.github.zhh2001.jp4.entity.TableEntry;
  * {@link #modify(TableEntry)}, {@link #delete(TableEntry)} (chainable), then
  * {@link #execute()} to fire the RPC and obtain a {@link WriteResult}.
  *
- * @implNote Implementation pending; every method currently throws
- *           {@link UnsupportedOperationException}. Behaviour lands in a later v0.1.0
- *           milestone (Phase 6).
+ * <p>Each {@code insert}/{@code modify}/{@code delete} call validates the entry
+ * against the bound P4Info eagerly and throws {@code P4PipelineException} with a
+ * known-list message on a malformed key, action, or parameter — the call site
+ * fails fast rather than deferring the failure to {@code execute()}.
  *
  * @since 0.1.0
  */
