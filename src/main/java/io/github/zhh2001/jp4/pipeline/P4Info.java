@@ -34,11 +34,19 @@ public final class P4Info {
     private final P4InfoOuterClass.P4Info proto;
     private final Map<String, TableInfo> tablesByName;
     private final Map<String, ActionInfo> actionsByName;
+    private final Map<Integer, TableInfo> tablesById;
+    private final Map<Integer, ActionInfo> actionsById;
 
     private P4Info(P4InfoOuterClass.P4Info proto) {
         this.proto = proto;
         this.tablesByName = buildTableIndex(proto);
         this.actionsByName = buildActionIndex(proto);
+        Map<Integer, TableInfo> tById = new HashMap<>(this.tablesByName.size() * 2);
+        for (TableInfo t : this.tablesByName.values()) tById.put(t.id(), t);
+        this.tablesById = Map.copyOf(tById);
+        Map<Integer, ActionInfo> aById = new HashMap<>(this.actionsByName.size() * 2);
+        for (ActionInfo a : this.actionsByName.values()) aById.put(a.id(), a);
+        this.actionsById = Map.copyOf(aById);
     }
 
     /**
@@ -150,10 +158,27 @@ public final class P4Info {
      * "allowed actions" lists in validation error messages.
      */
     public String actionNameById(int id) {
-        for (ActionInfo a : actionsByName.values()) {
-            if (a.id() == id) return a.name();
-        }
-        return null;
+        ActionInfo a = actionsById.get(id);
+        return a == null ? null : a.name();
+    }
+
+    /**
+     * Reverse lookup: returns the {@link TableInfo} for a given numeric table id, or
+     * {@code null} if the P4Info has no table by that id. Used by the read-RPC reverse
+     * parser when turning a {@code p4.v1.TableEntry} back into a jp4 {@link
+     * io.github.zhh2001.jp4.entity.TableEntry}.
+     */
+    public TableInfo tableInfoById(int id) {
+        return tablesById.get(id);
+    }
+
+    /**
+     * Reverse lookup: returns the {@link ActionInfo} for a given numeric action id, or
+     * {@code null} if the P4Info has no action by that id. Used by the read-RPC reverse
+     * parser; complement of {@link #actionNameById}.
+     */
+    public ActionInfo actionInfoById(int id) {
+        return actionsById.get(id);
     }
 
     /** Internal access to the underlying parsed protobuf — used by P4Switch when

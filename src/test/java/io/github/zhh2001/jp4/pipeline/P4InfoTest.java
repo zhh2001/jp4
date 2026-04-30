@@ -123,6 +123,35 @@ class P4InfoTest {
     }
 
     @Test
+    void reverseIdLookupsRoundTripWithNameLookups() {
+        P4Info info = P4Info.fromText(TXT);
+        TableInfo lpm = info.table("MyIngress.ipv4_lpm");
+        // Table id round-trip
+        assertSame(lpm, info.tableInfoById(lpm.id()),
+                "tableInfoById should return the same TableInfo instance");
+        // Match field id round-trip
+        MatchFieldInfo dst = lpm.matchField("hdr.ipv4.dstAddr");
+        assertSame(dst, lpm.matchFieldById(dst.id()));
+        // Action id round-trip
+        ActionInfo fwd = info.action("MyIngress.forward");
+        assertSame(fwd, info.actionInfoById(fwd.id()));
+        // Param id round-trip
+        ActionParamInfo port = fwd.param("port");
+        assertSame(port, fwd.paramById(port.id()));
+    }
+
+    @Test
+    void reverseIdLookupsReturnNullForUnknownIds() {
+        P4Info info = P4Info.fromText(TXT);
+        assertNull(info.tableInfoById(999_999), "unknown table id");
+        assertNull(info.actionInfoById(999_999), "unknown action id");
+        TableInfo lpm = info.table("MyIngress.ipv4_lpm");
+        assertNull(lpm.matchFieldById(999_999), "unknown match field id");
+        ActionInfo fwd = info.action("MyIngress.forward");
+        assertNull(fwd.paramById(999_999), "unknown param id");
+    }
+
+    @Test
     void emptyP4InfoIsEmpty() throws Exception {
         // An empty bytes-payload parses to a P4Info with zero tables / actions.
         // Manually construct an empty proto instance and round-trip its bytes.

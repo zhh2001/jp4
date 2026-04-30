@@ -170,3 +170,35 @@ Two consequences for downstream users:
    `allSucceeded()` is `true`). If a real-world target surfaces this shape,
    add a top-level marker to `WriteResult` and tighten `allSucceeded()`.
 
+## BMv2 read filter semantics
+
+P4Runtime spec §6.4 describes the match-field set on a `ReadRequest`
+`TableEntry` as a server-side filter: only entries that match the supplied
+fields should be returned. BMv2's PI library implements this strictly.
+Empirics recorded against `simple_switch_grpc` (Phase 6C): a table holding
+two `MyIngress.ipv4_lpm` entries (`10.16.7.0/24` and `10.16.8.0/24`), read
+with `.match("hdr.ipv4.dstAddr", new Match.Lpm(10.16.7.0, /24))`, returned
+exactly **one** entry — the requested key only:
+
+```
+[read-filter-empirics] sent_lpm=10.16.7.0/24 table_size_after_writes=2 returned_count=1
+[read-filter-empirics]   entry: dstAddr=Bytes(0x0a100700)/24
+```
+
+Empty match list = "all entries from the table" — also as spec describes.
+jp4 always serialises the spec-correct ReadRequest; the device-side filter
+behaviour determines what comes back. ReadRpcTest asserts the looser
+invariant ("the asked-for entry is present in the result") so the test
+remains correct against targets that do client-side filtering only.
+
+## BMv2 read response chunking
+
+A 100-entry table read via `.stream()` against BMv2 surfaces as one or more
+`ReadResponse` chunks; the user-facing `Stream<TableEntry>` flattens them
+transparently via `ReadQueryImpl.flatten`. `ReadStreamCloseTest` verifies
+that closing the stream early via `try-with-resources` (after
+`.limit(3).toList()`) propagates the cancel through `io.grpc.Context` to
+the underlying `ClientCall`, leaves no in-flight state, and a follow-up
+`.all()` on the same switch returns the full table — i.e. the channel is
+not stuck after a mid-stream cancel.
+

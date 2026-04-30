@@ -21,6 +21,7 @@ public final class TableInfo {
     private final int id;
     private final List<MatchFieldInfo> matchFields;
     private final Map<String, MatchFieldInfo> matchFieldsByName;
+    private final Map<Integer, MatchFieldInfo> matchFieldsById;
     private final Set<Integer> actionIds;
     private final long maxSize;
 
@@ -35,10 +36,13 @@ public final class TableInfo {
         this.maxSize = maxSize;
 
         Map<String, MatchFieldInfo> idx = new HashMap<>(this.matchFields.size() * 2);
+        Map<Integer, MatchFieldInfo> idxById = new HashMap<>(this.matchFields.size() * 2);
         for (MatchFieldInfo mf : this.matchFields) {
             idx.put(mf.name(), mf);
+            idxById.put(mf.id(), mf);
         }
         this.matchFieldsByName = Map.copyOf(idx);
+        this.matchFieldsById = Map.copyOf(idxById);
     }
 
     /** Fully-qualified table name, e.g. {@code "MyIngress.ipv4_lpm"}. */
@@ -69,6 +73,15 @@ public final class TableInfo {
                             + "' (known: " + matchFieldsByName.keySet() + ")");
         }
         return mf;
+    }
+
+    /**
+     * Reverse lookup: returns the {@link MatchFieldInfo} for a given numeric field id, or
+     * {@code null} if the table has no field by that id. Used by the read-RPC reverse
+     * parser when turning a {@code p4.v1.FieldMatch} back into a jp4 {@code Match}.
+     */
+    public MatchFieldInfo matchFieldById(int id) {
+        return matchFieldsById.get(id);
     }
 
     /** Action ids permitted by this table, as a set. */

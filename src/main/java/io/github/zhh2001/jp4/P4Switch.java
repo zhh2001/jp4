@@ -9,11 +9,20 @@ import io.github.zhh2001.jp4.error.OperationType;
 import io.github.zhh2001.jp4.error.P4ArbitrationLost;
 import io.github.zhh2001.jp4.error.P4ConnectionException;
 import io.github.zhh2001.jp4.error.P4OperationException;
+import io.github.zhh2001.jp4.error.P4PipelineException;
+import io.github.zhh2001.jp4.match.Match;
+import io.grpc.Context;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
 import io.github.zhh2001.jp4.pipeline.DeviceConfig;
+import io.github.zhh2001.jp4.pipeline.MatchFieldInfo;
 import io.github.zhh2001.jp4.pipeline.P4Info;
+import io.github.zhh2001.jp4.pipeline.TableInfo;
+import io.github.zhh2001.jp4.types.Bytes;
 import io.github.zhh2001.jp4.types.ElectionId;
+import io.github.zhh2001.jp4.types.Ip4;
+import io.github.zhh2001.jp4.types.Ip6;
+import io.github.zhh2001.jp4.types.Mac;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.grpc.stub.StreamObserver;
 import p4.v1.P4RuntimeGrpc;
@@ -23,9 +32,17 @@ import p4.v1.P4RuntimeOuterClass.Uint128;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Spliterator;
+import java.util.Spliterators;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -39,6 +56,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * A live connection to one P4Runtime device, scoped to one {@code device_id} and one
@@ -424,10 +443,32 @@ public final class P4Switch implements AutoCloseable {
         return new BatchBuilderImpl(pipe);
     }
 
+    /**
+     * Starts a read query against the given table. Per P4Runtime spec §6.4 a Read RPC
+     * is permitted on secondary clients, so this gate is looser than {@link
+     * #requireWritable()}: the switch must not be closed or broken, but mastership is
+     * not required.
+     *
+     * <p>The table name is validated eagerly against the bound P4Info — calling
+     * {@code read("typo")} fails immediately with a known-list message rather than
+     * deferring the failure to a terminal call. Match-field name validation also
+     * happens at terminal time (see {@link ReadQueryImpl#buildReadRequest}).
+     *
+     * @throws P4ConnectionException if the switch is closed or the stream is broken
+     * @throws P4PipelineException if no pipeline is bound or the table name is unknown
+     */
     public ReadQuery read(String tableName) {
-        if (closing.get()) throw new P4ConnectionException("switch is closed");
-        if (broken.get()) throw new P4ConnectionException("stream is broken");
-        throw new UnsupportedOperationException("Not yet implemented");
+        Objects.requireNonNull(tableName, "tableName");
+        P4ConnectionException gate = readabilityException();
+        if (gate != null) throw gate;
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
+        // Eager table-existence check; throws P4PipelineException with known-list.
+        pipe.p4info().table(tableName);
+        return new ReadQueryImpl(tableName, pipe);
     }
 
     public void onPacketIn(Consumer<PacketIn> handler) {
@@ -714,6 +755,51 @@ public final class P4Switch implements AutoCloseable {
     }
 
     /**
+     * Looser counterpart to {@link #writabilityException()}: read RPCs are permitted on
+     * secondary clients per P4Runtime spec §6.4, so this gate only fails on closed or
+     * broken switches — mastership is irrelevant.
+     */
+    private P4ConnectionException readabilityException() {
+        if (closing.get()) return new P4ConnectionException("switch is closed");
+        if (broken.get()) return new P4ConnectionException("stream is broken");
+        return null;
+    }
+
+    /**
+     * Translates a gRPC {@link StatusRuntimeException} from the {@code Read} RPC into a
+     * {@link P4OperationException}. Reads do not have per-update failures (each Read
+     * either streams or fails wholesale), so {@code failures} is always empty —
+     * downstream code consults the top-level {@link ErrorCode}.
+     */
+    private P4OperationException mapReadFailure(StatusRuntimeException sre) {
+        return new P4OperationException(
+                "read against device " + deviceId + " failed: " + sre.getStatus(),
+                OperationType.READ,
+                ErrorCode.fromGrpcCode(sre.getStatus().getCode().value()),
+                List.of());
+    }
+
+    /**
+     * Synchronous wait for a read future; mirrors {@link #awaitWrite} but tags the
+     * timeout / interrupt messages with "read" so users can tell the two RPCs apart in
+     * stack traces.
+     */
+    private static <T> T awaitRead(CompletableFuture<T> future) {
+        try {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (TimeoutException te) {
+            throw new P4ConnectionException("read RPC timed out after 30s", te);
+        } catch (ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw new P4ConnectionException("read RPC failed", cause);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new P4ConnectionException("interrupted during read", ie);
+        }
+    }
+
+    /**
      * Validates the entry, builds a single-update {@code WriteRequest}, dispatches
      * it through the outbound serial executor, and returns a future. All write paths
      * (sync and async) go through this — the contract that there is exactly one
@@ -934,6 +1020,294 @@ public final class P4Switch implements AutoCloseable {
                     .build());
             submitted++;
             return this;
+        }
+    }
+
+    /**
+     * Internal {@link ReadQuery} implementation. Match-field setters accumulate filters
+     * by name; the terminal call ({@link #all()} / {@link #one()} / {@link #stream()})
+     * resolves names via the table's {@link MatchFieldInfo} index, builds a
+     * {@code ReadRequest}, dispatches it through the outbound serial executor, and
+     * decodes each {@code ReadResponse}'s table entries via {@link EntryProto#fromProto}.
+     *
+     * <p>{@link #all()} / {@link #one()} drain the entire response stream on the
+     * outbound thread; {@link #stream()} initiates the call on the outbound thread but
+     * leaves consumption on the user thread, with {@link io.grpc.Context} cancellation
+     * wiring an early {@code close()} back to the underlying {@code ClientCall}.
+     */
+    private final class ReadQueryImpl implements ReadQuery {
+
+        private final String tableName;
+        private final Pipeline pipe;
+        private final Map<String, Match> matches = new LinkedHashMap<>();
+
+        ReadQueryImpl(String tableName, Pipeline pipe) {
+            this.tableName = tableName;
+            this.pipe = pipe;
+        }
+
+        @Override
+        public ReadQuery match(String fieldName, Match match) {
+            Objects.requireNonNull(fieldName, "fieldName");
+            Objects.requireNonNull(match, "match");
+            matches.put(fieldName, match);
+            return this;
+        }
+
+        @Override
+        public ReadQuery match(String fieldName, Bytes value) {
+            Objects.requireNonNull(value, "value");
+            return match(fieldName, new Match.Exact(value));
+        }
+
+        @Override
+        public ReadQuery match(String fieldName, Mac value) {
+            Objects.requireNonNull(value, "value");
+            return match(fieldName, new Match.Exact(value.toBytes()));
+        }
+
+        @Override
+        public ReadQuery match(String fieldName, Ip4 value) {
+            Objects.requireNonNull(value, "value");
+            return match(fieldName, new Match.Exact(value.toBytes()));
+        }
+
+        @Override
+        public ReadQuery match(String fieldName, Ip6 value) {
+            Objects.requireNonNull(value, "value");
+            return match(fieldName, new Match.Exact(value.toBytes()));
+        }
+
+        @Override
+        public ReadQuery match(String fieldName, int value) {
+            if (value < 0) {
+                throw new IllegalArgumentException(
+                        "match int value must be non-negative; pass byte[] or Bytes for an "
+                                + "explicit bit pattern. Got " + value);
+            }
+            return match(fieldName, new Match.Exact(Bytes.ofInt(value)));
+        }
+
+        @Override
+        public ReadQuery match(String fieldName, long value) {
+            if (value < 0L) {
+                throw new IllegalArgumentException(
+                        "match long value must be non-negative; pass byte[] or Bytes for an "
+                                + "explicit bit pattern. Got " + value);
+            }
+            return match(fieldName, new Match.Exact(Bytes.ofLong(value)));
+        }
+
+        @Override
+        public ReadQuery match(String fieldName, byte[] value) {
+            Objects.requireNonNull(value, "value");
+            return match(fieldName, new Match.Exact(Bytes.of(value)));
+        }
+
+        @Override
+        public List<TableEntry> all() {
+            return awaitRead(allAsync());
+        }
+
+        @Override
+        public Optional<TableEntry> one() {
+            return collapseToOne(all());
+        }
+
+        @Override
+        public CompletableFuture<List<TableEntry>> allAsync() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) {
+                CompletableFuture<List<TableEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(gate);
+                return f;
+            }
+            StreamSession sess = session.get();
+            if (sess == null) {
+                CompletableFuture<List<TableEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(new P4ConnectionException("no active session"));
+                return f;
+            }
+
+            p4.v1.P4RuntimeOuterClass.ReadRequest req;
+            try {
+                req = buildReadRequest();
+            } catch (RuntimeException ve) {
+                CompletableFuture<List<TableEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(ve);
+                return f;
+            }
+
+            CompletableFuture<List<TableEntry>> result = new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it =
+                                P4RuntimeGrpc.newBlockingStub(sess.channel)
+                                        .withDeadlineAfter(30, TimeUnit.SECONDS)
+                                        .read(req);
+                        List<TableEntry> entries = new ArrayList<>();
+                        while (it.hasNext()) {
+                            extractInto(it.next(), entries);
+                        }
+                        result.complete(entries);
+                    } catch (StatusRuntimeException sre) {
+                        result.completeExceptionally(mapReadFailure(sre));
+                    } catch (RuntimeException re) {
+                        result.completeExceptionally(re);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+            }
+            return result;
+        }
+
+        @Override
+        public CompletableFuture<Optional<TableEntry>> oneAsync() {
+            return allAsync().thenApply(this::collapseToOne);
+        }
+
+        @Override
+        public Stream<TableEntry> stream() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) throw gate;
+            StreamSession sess = session.get();
+            if (sess == null) throw new P4ConnectionException("no active session");
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+
+            // Cancellable context: cancel(null) on close propagates through gRPC
+            // Context binding to ClientCall.cancel().
+            Context.CancellableContext ctx = Context.current().withCancellation();
+
+            CompletableFuture<Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse>> startFuture =
+                    new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        // ctx.call binds the call's Context at start() to ctx so cancel
+                        // propagates. Returns immediately; gRPC iteration is lazy.
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it = ctx.call(() ->
+                                P4RuntimeGrpc.newBlockingStub(sess.channel).read(req));
+                        startFuture.complete(it);
+                    } catch (Exception e) {
+                        startFuture.completeExceptionally(e);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("switch is closed", ree);
+            }
+
+            Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter;
+            try {
+                respIter = startFuture.get(30, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("read RPC timed out before stream start", te);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                ctx.cancel(null);
+                throw new P4ConnectionException("interrupted while starting read stream", ie);
+            } catch (ExecutionException ee) {
+                ctx.cancel(null);
+                Throwable cause = ee.getCause();
+                if (cause instanceof RuntimeException re) throw re;
+                throw new P4ConnectionException("read RPC failed to start", cause);
+            }
+
+            Iterator<TableEntry> entryIter = flatten(respIter, pipe.p4info());
+            return StreamSupport.stream(
+                    Spliterators.spliteratorUnknownSize(entryIter, Spliterator.ORDERED),
+                    /* parallel */ false
+            ).onClose(() -> ctx.cancel(null));
+        }
+
+        // ---------- helpers ------------------------------------------------
+
+        private p4.v1.P4RuntimeOuterClass.ReadRequest buildReadRequest() {
+            // Re-resolve table; pipeline could in theory have been swapped between
+            // .read("table") returning and a terminal call here. Practically
+            // bindPipeline replaces the AtomicReference atomically and we captured a
+            // Pipeline snapshot at .read() time, so this is just defensive.
+            TableInfo table = pipe.p4info().table(tableName);
+            var teBuilder = p4.v1.P4RuntimeOuterClass.TableEntry.newBuilder()
+                    .setTableId(table.id());
+
+            for (Map.Entry<String, Match> me : matches.entrySet()) {
+                MatchFieldInfo field = lookupMatchField(table, me.getKey());
+                teBuilder.addMatch(EntryProto.matchToProto(field, me.getValue()));
+            }
+
+            var entity = p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                    .setTableEntry(teBuilder.build())
+                    .build();
+            return p4.v1.P4RuntimeOuterClass.ReadRequest.newBuilder()
+                    .setDeviceId(deviceId)
+                    .addEntities(entity)
+                    .build();
+        }
+
+        private MatchFieldInfo lookupMatchField(TableInfo table, String fieldName) {
+            try {
+                return table.matchField(fieldName);
+            } catch (P4PipelineException notFound) {
+                List<String> known = new ArrayList<>(table.matchFields().size());
+                for (MatchFieldInfo mf : table.matchFields()) known.add(mf.name());
+                throw new P4PipelineException(
+                        "Field '" + fieldName + "' not found in table '" + table.name()
+                                + "'. Known fields: " + known);
+            }
+        }
+
+        private void extractInto(p4.v1.P4RuntimeOuterClass.ReadResponse resp,
+                                 List<TableEntry> out) {
+            for (p4.v1.P4RuntimeOuterClass.Entity e : resp.getEntitiesList()) {
+                if (e.hasTableEntry()) {
+                    out.add(EntryProto.fromProto(e.getTableEntry(), pipe.p4info()));
+                }
+                // Other entity types (counter / meter / action_profile_member /
+                // packet_replication / etc.) are v0.2 work — silently skipped here.
+            }
+        }
+
+        private Iterator<TableEntry> flatten(
+                Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter,
+                P4Info p4info) {
+            return new Iterator<>() {
+                Iterator<TableEntry> currentBatch = Collections.emptyIterator();
+
+                @Override
+                public boolean hasNext() {
+                    try {
+                        while (!currentBatch.hasNext() && respIter.hasNext()) {
+                            List<TableEntry> batch = new ArrayList<>();
+                            extractInto(respIter.next(), batch);
+                            currentBatch = batch.iterator();
+                        }
+                        return currentBatch.hasNext();
+                    } catch (StatusRuntimeException sre) {
+                        throw mapReadFailure(sre);
+                    }
+                }
+
+                @Override
+                public TableEntry next() {
+                    if (!hasNext()) throw new NoSuchElementException();
+                    return currentBatch.next();
+                }
+            };
+        }
+
+        private Optional<TableEntry> collapseToOne(List<TableEntry> all) {
+            if (all.isEmpty()) return Optional.empty();
+            if (all.size() == 1) return Optional.of(all.get(0));
+            throw new P4OperationException(
+                    "expected at most one entry from table '" + tableName
+                            + "', got " + all.size() + " entries",
+                    OperationType.READ,
+                    ErrorCode.UNKNOWN,
+                    List.of());
         }
     }
 }
