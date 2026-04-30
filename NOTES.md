@@ -127,3 +127,16 @@ on an already-arbitrated switch) and does NOT apply to the initial connect; the
 two retry concerns are independent. A future jp4 release may add an
 initial-connect retry option if real-world demand surfaces.
 
+## Match subclass construction: direct new vs factory method
+
+`TableEntryBuilder` uses `new Match.Exact(...)` directly when wrapping bare match
+values, rather than going through `Match.exact(...)` static factories. This avoids
+one level of indirection but couples `TableEntryBuilder`'s source to all current
+`Match` constructors directly.
+
+If future versions add preprocessing logic to `Match` subclass construction (e.g.
+canonical-form normalization, bitWidth-aware truncation), the call sites in
+`TableEntryBuilder` need to be updated in lockstep. A safer alternative is to
+refactor all internal callers to use the static factories `Match.exact(...)`,
+`Match.lpm(...)`, etc. Recorded here so the trade-off is not silently lost.
+

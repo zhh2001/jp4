@@ -280,16 +280,10 @@ class SpecComplianceTest {
     // scenarioB_p4InfoFromFileThrowsUOE removed: P4Info.fromFile is implemented
     // as of v0.1.0 (Phase 5). Coverage moves to P4InfoTest unit tests.
 
-    @Test
-    void scenarioC_tableEntryBuildThrowsUOE() {
-        // .in() / .match() / .action() / .param() chain returns builders fine;
-        // the terminal .build() is the first call that should be UOE today.
-        assertThrows(UnsupportedOperationException.class,
-                () -> TableEntry.in("MyIngress.dmac")
-                        .match("hdr.ethernet.dstAddr", Mac.of("00:00:00:00:00:01"))
-                        .action("MyIngress.set_egress").param("port", 1)
-                        .build());
-    }
+    // scenarioC_tableEntryBuildThrowsUOE removed: TableEntry.in / TableEntryBuilder /
+    // ActionBuilder / ActionInstance are implemented as of v0.1.0 (Phase 6A).
+    // Construction-side coverage moves to TableEntryTest; P4Info-driven validation
+    // coverage lives in the integration tests written in Phase 6B.
 
     @Test
     void scenarioE_packetOutBuildThrowsUOE() {
