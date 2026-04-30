@@ -13,6 +13,7 @@ import io.github.zhh2001.jp4.types.Bytes;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -58,6 +59,23 @@ class PacketIoTest {
     static void stop() {
         if (sw != null) sw.close();
         if (bmv2 != null) bmv2.close();
+    }
+
+    /**
+     * Drain anything still buffered or in flight from prior tests in this class
+     * before each test runs. Without this, a PacketIn surfaced by an earlier
+     * scenario (e.g. {@code packetInStreamSubscriberSeesPacketThenCancels} sends
+     * two packets) could leak into a later test's handler and inflate counters
+     * past their expected values. {@code pollPacketIn(200ms)} blocks the full
+     * duration when the deque is empty, so the loop exits only after a 200ms
+     * window passed with no arrival — a stable-empty signal against both local
+     * native and Docker BMv2 round-trip latency.
+     */
+    @BeforeEach
+    void drainResidualPackets() throws InterruptedException {
+        while (sw.pollPacketIn(Duration.ofMillis(200)).isPresent()) {
+            // discard
+        }
     }
 
     /** Utility: register a one-shot handler returning a future of the first PacketIn. */
