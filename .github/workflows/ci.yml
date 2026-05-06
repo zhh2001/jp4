@@ -51,3 +51,131 @@ jobs:
         with:
           name: test-reports-jdk${{ matrix.java-version }}
           path: build/reports/tests/
+
+  # ---------------- examples-CI ----------------
+  #
+  # Each of the three runnable examples runs end-to-end against a
+  # digest-pinned BMv2 in its own job, in parallel with build and
+  # docs-lint. The BMv2 docker run command is verbatim from
+  # examples/README.md so the CI breaks the same way a user's
+  # copy-paste would. Validation is exit-0 plus grep of distinctive
+  # output lines (Phase 9 lesson — exit 0 alone passed even when the
+  # demo cycle never fired). No retry; if flakes appear, observe
+  # before pre-emptively hiding.
+
+  examples-l2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Start BMv2 (digest-pinned, matches examples/README.md)
+        run: |
+          docker run --rm -d --name jp4-bmv2 -p 50051:50051 \
+              p4lang/behavioral-model@sha256:7f28ab029368a1749a100c37ca4eaa6861322abb89885cfebb5c316326a45247 \
+              simple_switch_grpc \
+                  --no-p4 --device-id 0 --log-console -L info \
+                  -i 0@lo \
+                  -- --grpc-server-addr 0.0.0.0:50051 --cpu-port 255
+          sleep 5
+
+      - name: Run simple-l2-switch
+        working-directory: examples
+        run: ./gradlew :simple-l2-switch:run --console=plain | tee /tmp/run-l2.log
+
+      - name: Assert LEARN cycle fired
+        run: |
+          grep -E '^\[L2\] LEARN .*AA:00:00:00:00:01.*port 1' /tmp/run-l2.log
+          grep -E '^\[L2\] LEARN .*BB:00:00:00:00:02.*port 2' /tmp/run-l2.log
+          grep -E '^\[L2\] learned table: .*AA:00:00:00:00:01=1.*BB:00:00:00:00:02=2' /tmp/run-l2.log
+
+      - name: Cleanup BMv2
+        if: always()
+        run: docker rm -f jp4-bmv2 || echo "BMv2 cleanup failed; container may leak"
+
+  examples-lb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Start BMv2 (digest-pinned, matches examples/README.md)
+        run: |
+          docker run --rm -d --name jp4-bmv2 -p 50051:50051 \
+              p4lang/behavioral-model@sha256:7f28ab029368a1749a100c37ca4eaa6861322abb89885cfebb5c316326a45247 \
+              simple_switch_grpc \
+                  --no-p4 --device-id 0 --log-console -L info \
+                  -i 0@lo \
+                  -- --grpc-server-addr 0.0.0.0:50051 --cpu-port 255
+          sleep 5
+
+      - name: Run simple-loadbalancer
+        working-directory: examples
+        run: ./gradlew :simple-loadbalancer:run --console=plain | tee /tmp/run-lb.log
+
+      - name: Assert install / readback / modify / cleanup cycle fired
+        run: |
+          grep -E '^\[LB\] installed 3 routes \(allSucceeded=true\)' /tmp/run-lb.log
+          grep -E '^\[LB\] backend_lookup after modify: 3 entries'   /tmp/run-lb.log
+          grep -E '^\[LB\] cleaned up; goodbye'                      /tmp/run-lb.log
+
+      - name: Cleanup BMv2
+        if: always()
+        run: docker rm -f jp4-bmv2 || echo "BMv2 cleanup failed; container may leak"
+
+  examples-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Start BMv2 (digest-pinned, matches examples/README.md)
+        run: |
+          docker run --rm -d --name jp4-bmv2 -p 50051:50051 \
+              p4lang/behavioral-model@sha256:7f28ab029368a1749a100c37ca4eaa6861322abb89885cfebb5c316326a45247 \
+              simple_switch_grpc \
+                  --no-p4 --device-id 0 --log-console -L info \
+                  -i 0@lo \
+                  -- --grpc-server-addr 0.0.0.0:50051 --cpu-port 255
+          sleep 5
+
+      - name: Run network-monitor
+        working-directory: examples
+        run: ./gradlew :network-monitor:run --console=plain | tee /tmp/run-mon.log
+
+      - name: Assert primary observed all 30 PacketIns and secondary loadPipeline succeeded
+        run: |
+          grep -E '^\[MON\] secondary loadPipeline\(\) OK'           /tmp/run-mon.log
+          grep -E '^\[MON\] observed 30 / 30 expected packets'      /tmp/run-mon.log
+          grep -E '^\[MON\]   port 1: .* packets'                   /tmp/run-mon.log
+
+      - name: Cleanup BMv2
+        if: always()
+        run: docker rm -f jp4-bmv2 || echo "BMv2 cleanup failed; container may leak"
