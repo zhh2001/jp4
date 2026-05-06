@@ -24,16 +24,19 @@ final class DockerBackend implements Bmv2Backend {
 
     /**
      * Candidate images in priority order. The first one that successfully pulls and
-     * starts wins. {@code latest} comes first because it is the most likely to exist
-     * on Docker Hub at any given moment; the others are fallbacks for network or
-     * tag-availability issues.
+     * starts wins. The primary entry pins {@code p4lang/behavioral-model} to a manifest
+     * digest (the {@code :latest} content as of 2026-05-05) so CI runs against the
+     * same image content regardless of when the workflow fires; p4lang does not publish
+     * dated immutable tags, so digest pinning is the only stable reference Docker Hub
+     * offers. The mutable {@code :latest} stays as a fallback in case the digest is
+     * pruned. See NOTES.md "Docker BMv2 image tag pinning" for the rotation procedure.
      *
      * <p>If all candidates fail, {@link #start()} surfaces an aggregated error listing
      * what each image attempt produced.
      */
     private static final List<String> CANDIDATE_IMAGES = List.of(
+            "p4lang/behavioral-model@sha256:7f28ab029368a1749a100c37ca4eaa6861322abb89885cfebb5c316326a45247",
             "p4lang/behavioral-model:latest",
-            "p4lang/behavioral-model:no-bmv2",
             "opennetworkinglab/p4mn:latest"
     );
 

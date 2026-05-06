@@ -202,3 +202,40 @@ the underlying `ClientCall`, leaves no in-flight state, and a follow-up
 `.all()` on the same switch returns the full table — i.e. the channel is
 not stuck after a mid-stream cancel.
 
+## Docker BMv2 image tag pinning
+
+`DockerBackend.CANDIDATE_IMAGES` pins `p4lang/behavioral-model` to a
+specific manifest digest (the `:latest` content as of 2026-05-05) rather
+than tracking the mutable `:latest` tag. p4lang does not publish dated
+immutable tags, so digest pinning is the only stable reference Docker Hub
+offers for this image. Pinning eliminates "image drift between CI runs"
+as a variable; the residual non-overlapping flake observed on JDK 25 +
+Docker before pinning was therefore more likely a JVM-scheduling /
+gRPC-Netty interaction than an image-rebuild artefact, but the pin
+should be in place before that hypothesis can be ruled in or out.
+
+The mutable `:latest` tag remains in the candidate list as a fallback
+in case the pinned digest is later pruned from Docker Hub. The
+`opennetworkinglab/p4mn:latest` entry stays as a last-resort fallback
+(different image, different lineage). The `:no-bmv2` entry was removed —
+that tag has never existed on Docker Hub, so it had been dead
+configuration since the multi-image fallback was introduced in Phase 4D.
+
+To rotate the pin (e.g. when a known BMv2 fix lands or the digest is
+pruned):
+
+```bash
+# Inspect the current :latest manifest list digest
+docker manifest inspect p4lang/behavioral-model:latest \
+  | grep -A1 '"mediaType":' | head
+
+# Or via Docker Hub API (no docker CLI required)
+curl -s 'https://hub.docker.com/v2/repositories/p4lang/behavioral-model/tags/latest' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])'
+```
+
+Replace the `@sha256:…` value in `DockerBackend.CANDIDATE_IMAGES` and
+push to a branch to validate via CI before merging the rotation. Do not
+rotate without a CI green run — the new digest may have a behavioural
+difference that affects existing tests.
+
