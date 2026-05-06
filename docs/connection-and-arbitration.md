@@ -22,7 +22,7 @@ process boundary does not matter.
 
 The 99% case is one primary controller per device:
 
-<!-- snippet: examples/simple-l2-switch/.../SimpleL2Switch.java#main -->
+<!-- illustrative -->
 
 ```java
 try (P4Switch sw = P4Switch.connectAsPrimary("127.0.0.1:50051")
@@ -31,6 +31,8 @@ try (P4Switch sw = P4Switch.connectAsPrimary("127.0.0.1:50051")
     // ... operate ...
 }
 ```
+
+*Real usage: [`simple-l2-switch`](../examples/simple-l2-switch/).*
 
 `connectAsPrimary(address)` is shorthand for
 `connect(address).asPrimary()` with default deviceId (0) and a generated
@@ -64,7 +66,7 @@ primary's.
 Read-only and observability controllers connect with a lower election
 id and `asSecondary()`:
 
-<!-- snippet: examples/network-monitor/.../NetworkMonitor.java#main (trimmed) -->
+<!-- illustrative -->
 
 ```java
 try (P4Switch monitor = P4Switch.connect("127.0.0.1:50051")
@@ -79,6 +81,8 @@ try (P4Switch monitor = P4Switch.connect("127.0.0.1:50051")
     // ... read tables, observe PacketIn ...
 }
 ```
+
+*Real usage: [`network-monitor`](../examples/network-monitor/).*
 
 Two practical notes:
 

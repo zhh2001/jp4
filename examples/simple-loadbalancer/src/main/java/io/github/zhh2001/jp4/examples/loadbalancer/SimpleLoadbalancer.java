@@ -88,6 +88,7 @@ public final class SimpleLoadbalancer {
         }
     }
 
+    // SNIPPET_START routeEntry
     private static TableEntry routeEntry(String cidr, int port) {
         String[] parts = cidr.split("/");
         Ip4 prefix = Ip4.of(parts[0]);
@@ -97,6 +98,7 @@ public final class SimpleLoadbalancer {
                 .action("MyIngress.forward").param("port", port)
                 .build();
     }
+    // SNIPPET_END routeEntry
 
     private static void printRoutes(P4Switch sw, String label) {
         List<TableEntry> got = sw.read("MyIngress.backend_lookup").all();

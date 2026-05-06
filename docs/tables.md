@@ -44,6 +44,27 @@ sw.delete(e);   // same builder result, safe to reuse
 For `delete`, only the match key matters; any action half is silently
 ignored on the wire.
 
+A common controller pattern is to wrap the builder in a small static
+helper so the construction site stays one line. The
+`simple-loadbalancer` example does this for IPv4 LPM routes:
+
+<!-- snippet: examples/simple-loadbalancer/src/main/java/io/github/zhh2001/jp4/examples/loadbalancer/SimpleLoadbalancer.java#routeEntry -->
+
+```java
+private static TableEntry routeEntry(String cidr, int port) {
+    String[] parts = cidr.split("/");
+    Ip4 prefix = Ip4.of(parts[0]);
+    int prefixLen = Integer.parseInt(parts[1]);
+    return TableEntry.in("MyIngress.backend_lookup")
+            .match("hdr.ipv4.dstAddr", new Match.Lpm(prefix.toBytes(), prefixLen))
+            .action("MyIngress.forward").param("port", port)
+            .build();
+}
+```
+
+Call sites read as `routeEntry("10.0.1.0/24", 1)` — the table name,
+match-field name, and action name stay confined to the helper.
+
 ## Match kinds
 
 `Match` is sealed with five variants. Most controllers only construct
@@ -117,7 +138,7 @@ detect after returning. Sync wrappers unwrap the future and rethrow.
 
 Multiple updates in one Write RPC:
 
-<!-- snippet: examples/simple-loadbalancer/.../SimpleLoadbalancer.java#main (trimmed) -->
+<!-- illustrative -->
 
 ```java
 WriteResult r = sw.batch()
@@ -129,6 +150,8 @@ WriteResult r = sw.batch()
 System.out.printf("installed %d routes (allSucceeded=%s)%n",
         r.submitted(), r.allSucceeded());
 ```
+
+*Real usage: [`simple-loadbalancer`](../examples/simple-loadbalancer/).*
 
 The full simple-loadbalancer run (verbatim from a real run) shows the
 `batch().execute()` outcome plus a read-back-modify-readback cycle:

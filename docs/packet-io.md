@@ -39,7 +39,7 @@ A few orientation notes:
 
 The 90% case. Register one handler, jp4 calls it per packet:
 
-<!-- snippet: examples/simple-l2-switch/.../SimpleL2Switch.java#handlePacketIn -->
+<!-- illustrative -->
 
 ```java
 sw.onPacketIn(packet -> {
@@ -49,6 +49,8 @@ sw.onPacketIn(packet -> {
     // ...
 });
 ```
+
+*Real usage: [`simple-l2-switch`](../examples/simple-l2-switch/).*
 
 `packet.metadata(name)` returns the raw `Bytes` for any
 `controller_packet_metadata` field declared on the `packet_in` header.
@@ -65,7 +67,7 @@ dispatch without closing the switch.
 Returns a `Flow.Publisher<PacketIn>` (JDK 9+, no extra dependency). Each
 subscriber sees every packet:
 
-<!-- snippet: examples/network-monitor/.../NetworkMonitor.java (illustrative — the example uses an inline class rather than an anonymous one) -->
+<!-- illustrative -->
 
 ```java
 sw.packetInStream().subscribe(new Flow.Subscriber<>() {
@@ -79,6 +81,8 @@ sw.packetInStream().subscribe(new Flow.Subscriber<>() {
     @Override public void onComplete()         { /* device closed stream */ }
 });
 ```
+
+*Real usage: [`network-monitor`](../examples/network-monitor/).*
 
 The full `network-monitor` run (verbatim from a real run) shows a
 primary-injects + Flow-subscriber-tallies cycle, plus a brief secondary
