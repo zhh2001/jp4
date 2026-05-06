@@ -1,0 +1,107 @@
+# proto-file: p4/config/v1/p4info.proto
+# proto-message: p4.config.v1.P4Info
+
+pkg_info {
+  arch: "v1model"
+}
+tables {
+  preamble {
+    id: 42660923
+    name: "MyIngress.l2_forward"
+    alias: "l2_forward"
+  }
+  match_fields {
+    id: 1
+    name: "hdr.ethernet.dstAddr"
+    bitwidth: 48
+    match_type: EXACT
+  }
+  action_refs {
+    id: 26315808
+  }
+  action_refs {
+    id: 23980511
+  }
+  action_refs {
+    id: 30045356
+  }
+  action_refs {
+    id: 21257015
+  }
+  initial_default_action {
+    action_id: 23980511
+  }
+  size: 1024
+}
+actions {
+  preamble {
+    id: 21257015
+    name: "NoAction"
+    alias: "NoAction"
+    annotations: "@noWarn(\"unused\")"
+  }
+}
+actions {
+  preamble {
+    id: 26315808
+    name: "MyIngress.send_to_port"
+    alias: "send_to_port"
+  }
+  params {
+    id: 1
+    name: "port"
+    bitwidth: 9
+  }
+}
+actions {
+  preamble {
+    id: 23980511
+    name: "MyIngress.flood_via_cpu"
+    alias: "flood_via_cpu"
+  }
+}
+actions {
+  preamble {
+    id: 30045356
+    name: "MyIngress.drop_pkt"
+    alias: "drop_pkt"
+  }
+}
+controller_packet_metadata {
+  preamble {
+    id: 68340960
+    name: "packet_in"
+    alias: "packet_in"
+    annotations: "@controller_header(\"packet_in\")"
+  }
+  metadata {
+    id: 1
+    name: "ingress_port"
+    bitwidth: 9
+  }
+  metadata {
+    id: 2
+    name: "_pad"
+    bitwidth: 7
+  }
+}
+controller_packet_metadata {
+  preamble {
+    id: 74440427
+    name: "packet_out"
+    alias: "packet_out"
+    annotations: "@controller_header(\"packet_out\")"
+  }
+  metadata {
+    id: 1
+    name: "egress_port"
+    bitwidth: 9
+  }
+  metadata {
+    id: 2
+    name: "_pad"
+    bitwidth: 7
+  }
+}
+type_info {
+}
