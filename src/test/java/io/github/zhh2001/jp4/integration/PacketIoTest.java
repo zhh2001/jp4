@@ -307,6 +307,44 @@ class PacketIoTest {
         }
     }
 
+    /** onPacketIn without a bound pipeline is rejected eagerly: dispatch would
+     *  silently drop every PacketIn (metadata cannot be parsed without P4Info),
+     *  which is the worst-kind-of-failure the call-site gate is designed to prevent. */
+    @Test
+    void onPacketInWithoutBoundPipelineRejected() throws Exception {
+        try (BMv2TestSupport perTest = new BMv2TestSupport("onPacketInNoPipe").start();
+             P4Switch noPipe = P4Switch.connectAsPrimary(perTest.grpcAddress())) {
+            P4PipelineException ex = assertThrows(P4PipelineException.class,
+                    () -> noPipe.onPacketIn(p -> { /* no-op */ }));
+            assertTrue(ex.getMessage().contains("no pipeline bound"),
+                    "got: " + ex.getMessage());
+        }
+    }
+
+    /** packetInStream() without a bound pipeline is rejected at the call site. */
+    @Test
+    void packetInStreamWithoutBoundPipelineRejected() throws Exception {
+        try (BMv2TestSupport perTest = new BMv2TestSupport("packetInStreamNoPipe").start();
+             P4Switch noPipe = P4Switch.connectAsPrimary(perTest.grpcAddress())) {
+            P4PipelineException ex = assertThrows(P4PipelineException.class,
+                    noPipe::packetInStream);
+            assertTrue(ex.getMessage().contains("no pipeline bound"),
+                    "got: " + ex.getMessage());
+        }
+    }
+
+    /** pollPacketIn() without a bound pipeline is rejected at the call site. */
+    @Test
+    void pollPacketInWithoutBoundPipelineRejected() throws Exception {
+        try (BMv2TestSupport perTest = new BMv2TestSupport("pollPacketInNoPipe").start();
+             P4Switch noPipe = P4Switch.connectAsPrimary(perTest.grpcAddress())) {
+            P4PipelineException ex = assertThrows(P4PipelineException.class,
+                    () -> noPipe.pollPacketIn(Duration.ofMillis(50)));
+            assertTrue(ex.getMessage().contains("no pipeline bound"),
+                    "got: " + ex.getMessage());
+        }
+    }
+
     /** sendAsync returns a CompletableFuture that completes successfully on the
      *  happy path (sync wrapper consistency). */
     @Test

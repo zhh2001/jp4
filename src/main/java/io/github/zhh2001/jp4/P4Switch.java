@@ -493,9 +493,18 @@ public final class P4Switch implements AutoCloseable {
      * <p>Mixes cleanly with {@link #packetInStream()} and {@link #pollPacketIn(Duration)}:
      * each PacketIn is fanned out to the active handler, every subscriber, and the
      * poll deque (see v3 §D6 / §5 Scenario E).
+     *
+     * <p>Throws {@link P4PipelineException} if no pipeline is bound — PacketIn metadata
+     * cannot be parsed without a bound pipeline, and silently dropping every PacketIn
+     * after a handler registration would be the worst kind of failure mode (the
+     * user's code looks correct but never observes traffic). Secondaries that observe
+     * Packet I/O must call {@link #loadPipeline()} before registering a handler.
+     *
+     * @throws P4PipelineException if no pipeline is bound
      */
     public void onPacketIn(Consumer<PacketIn> handler) {
         Objects.requireNonNull(handler, "handler");
+        requirePipelineBound();
         packetHandler = handler;
     }
 
@@ -504,8 +513,15 @@ public final class P4Switch implements AutoCloseable {
      * messages. Each subscriber sees every PacketIn (Reactive Streams fan-out).
      * Subscribing or cancelling does not affect other subscribers, the registered
      * handler, or the poll deque.
+     *
+     * <p>Throws {@link P4PipelineException} if no pipeline is bound — see
+     * {@link #onPacketIn(Consumer)} for the rationale; the same silent-drop trap
+     * applies to subscribers.
+     *
+     * @throws P4PipelineException if no pipeline is bound
      */
     public Flow.Publisher<PacketIn> packetInStream() {
+        requirePipelineBound();
         return packetPublisher;
     }
 
@@ -514,9 +530,15 @@ public final class P4Switch implements AutoCloseable {
      * Returns {@link Optional#empty()} on timeout. Independent of the handler / Flow
      * subscribers — every PacketIn is also offered to this deque (capacity
      * {@value #PACKET_QUEUE_CAPACITY}); excess is dropped with a log warning.
+     *
+     * <p>Throws {@link P4PipelineException} if no pipeline is bound — see
+     * {@link #onPacketIn(Consumer)} for the rationale.
+     *
+     * @throws P4PipelineException if no pipeline is bound
      */
     public Optional<PacketIn> pollPacketIn(Duration timeout) throws InterruptedException {
         Objects.requireNonNull(timeout, "timeout");
+        requirePipelineBound();
         long ms = Math.max(0L, timeout.toMillis());
         PacketIn p = packetDeque.pollFirst(ms, TimeUnit.MILLISECONDS);
         return Optional.ofNullable(p);
@@ -933,6 +955,26 @@ public final class P4Switch implements AutoCloseable {
         if (closing.get()) return new P4ConnectionException("switch is closed");
         if (broken.get()) return new P4ConnectionException("stream is broken");
         return null;
+    }
+
+    /**
+     * Fail-fast gate for the three packet-consumer APIs ({@link #onPacketIn},
+     * {@link #packetInStream}, {@link #pollPacketIn}). Without a bound pipeline,
+     * {@code dispatchPacketIn} cannot resolve metadata ids and silently drops every
+     * PacketIn — the worst kind of failure (handler / subscriber / poll all look
+     * registered, no error fires, no packet is observed). Throwing here turns that
+     * silent failure into a deterministic call-site rejection.
+     *
+     * <p>This is distinct from the per-packet fail-open behaviour in
+     * {@code dispatchPacketIn}: a malformed individual packet is dropped with a log
+     * warning so one bad packet does not poison the stream. Pipeline missing entirely
+     * is a configuration problem, not a data problem.
+     */
+    private void requirePipelineBound() {
+        if (pipeline.get() == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
     }
 
     /**
