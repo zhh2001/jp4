@@ -1,3 +1,5 @@
+<!-- doc-lint: skip-file (frozen v3 design contract; predates the Phase 10 marker convention used by README and docs/*.md) -->
+
 # jp4 API Design — v3 (final)
 
 Status: **Final design**. Implementation work proceeds against this document.

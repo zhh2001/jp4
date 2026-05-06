@@ -7,6 +7,19 @@ on:
     branches: [ main ]
 
 jobs:
+  docs-lint:
+    # Verifies the provenance markers on Java code blocks in docs/*.md and
+    # README.md (see scripts/check-doc-snippets.py). Runs in parallel with
+    # the build matrix; ~5s wall time, no JDK setup needed. Fails fast on
+    # an unmarked block, a missing *Real usage:* footer, or a snippet that
+    # has drifted from its example file's SNIPPET_START/END region.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify doc snippets
+        run: python3 scripts/check-doc-snippets.py
+
   build:
     runs-on: ubuntu-latest
 
