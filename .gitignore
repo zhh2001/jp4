@@ -19,3 +19,11 @@ Thumbs.db
 
 # p4c intermediate compilation artefacts (not source, not deliverable)
 *.p4i
+
+# Publishing secrets — these never belong in the repo. Local development and
+# release operations should put credentials in ~/.gradle/gradle.properties
+# (user home) or in environment variables instead. See RELEASING.md.
+/gradle.properties
+**/secring.*
+*.gpg
+*.kbx

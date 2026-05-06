@@ -63,6 +63,45 @@ jobs:
   # demo cycle never fired). No retry; if flakes appear, observe
   # before pre-emptively hiding.
 
+  publish-dry-run:
+    # publishToMavenLocal generates the same POM, sources jar, and javadoc jar
+    # that publishToMavenCentral would upload — minus the GPG signature.
+    # Catches missing or malformed POM fields before they reach the Central
+    # Portal staging API. Does NOT upload anywhere.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate POM, jars, and metadata into ~/.m2
+        run: ./gradlew publishToMavenLocal
+
+      - name: Verify all four artefacts present
+        run: |
+          DIR=~/.m2/repository/io/github/zhh2001/jp4/0.1.0-SNAPSHOT
+          for f in jp4-0.1.0-SNAPSHOT.jar \
+                   jp4-0.1.0-SNAPSHOT.pom \
+                   jp4-0.1.0-SNAPSHOT-sources.jar \
+                   jp4-0.1.0-SNAPSHOT-javadoc.jar; do
+            test -s "$DIR/$f" || { echo "Missing: $DIR/$f"; exit 1; }
+          done
+
+      - name: Verify POM contains every Maven-Central-required field
+        run: |
+          POM=~/.m2/repository/io/github/zhh2001/jp4/0.1.0-SNAPSHOT/jp4-0.1.0-SNAPSHOT.pom
+          for tag in '<name>' '<description>' '<url>' '<inceptionYear>' '<licenses>' '<developers>' '<scm>'; do
+            grep -q "$tag" "$POM" || { echo "POM missing required field: $tag"; exit 1; }
+          done
+
   examples-l2:
     runs-on: ubuntu-latest
     timeout-minutes: 2

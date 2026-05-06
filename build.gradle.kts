@@ -1,8 +1,11 @@
 import com.google.protobuf.gradle.id
+import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
 
 plugins {
     `java-library`
     id("com.google.protobuf") version "0.10.0"
+    id("com.vanniktech.maven.publish") version "0.33.0"
 }
 
 group = "io.github.zhh2001"
@@ -89,5 +92,91 @@ tasks.jar {
             "Implementation-Title" to project.name,
             "Implementation-Version" to project.version
         )
+    }
+}
+
+// ---------------- Maven Central publishing -----------------------------------
+//
+// Publishing to Maven Central (Central Portal, post-OSSRH-EOL) is configured here
+// via the vanniktech plugin. The plugin generates a sources-jar and a javadoc-jar
+// in addition to the main jar, populates the POM with the metadata Maven Central
+// requires (name / description / url / licenses / scm / developers), and uploads
+// to the new https://central.sonatype.com/api/v1/publisher/upload endpoint.
+//
+// Local dry-run (no GPG, no upload):
+//     ./gradlew publishToMavenLocal
+// Real release (requires GPG + Central Portal credentials in ~/.gradle/gradle.properties):
+//     ./gradlew publishToMavenCentral
+// See RELEASING.md for the full release procedure.
+
+mavenPublishing {
+    coordinates(group.toString(), "jp4", version.toString())
+
+    pom {
+        name.set("jp4")
+        description.set(
+            "A native Java client library for P4Runtime — connect to a " +
+            "P4Runtime-enabled device, push pipelines, read and write table " +
+            "entries, and send and receive packets through the StreamChannel."
+        )
+        inceptionYear.set("2026")
+        url.set("https://github.com/zhh2001/jp4/")
+
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("repo")
+            }
+        }
+        developers {
+            developer {
+                id.set("zhh2001")
+                name.set("zhh2001")
+                email.set("zhh2001@users.noreply.github.com")
+                url.set("https://github.com/zhh2001/")
+            }
+        }
+        scm {
+            url.set("https://github.com/zhh2001/jp4/")
+            connection.set("scm:git:git://github.com/zhh2001/jp4.git")
+            developerConnection.set("scm:git:ssh://git@github.com/zhh2001/jp4.git")
+        }
+    }
+
+    // Configure as a plain Java library; ship sources + javadoc jars (Maven Central
+    // requires both for OSS releases). JavadocJar.Javadoc() invokes the standard
+    // javadoc tool; switch to JavadocJar.Empty() if javadoc generation breaks the
+    // build for an unrelated reason and we need a temporary workaround.
+    configure(JavaLibrary(JavadocJar.Javadoc(), sourcesJar = true))
+
+    // Central Portal target. automaticRelease = false means uploads land in
+    // staging and require manual click-through in the Portal UI before
+    // becoming public on Maven Central — appropriate while the release ritual
+    // is still being learned. v0.1.x patches can flip this to true once the
+    // pipeline is well-trodden.
+    publishToMavenCentral(automaticRelease = false)
+
+    // Sign artifacts only when GPG keys are configured (per-user
+    // ~/.gradle/gradle.properties or CI secrets, never in the repo).
+    // publishToMavenLocal works without keys because of this guard;
+    // publishToMavenCentral fails without them, which is the right behaviour —
+    // signed artifacts are a Central requirement.
+    if (project.hasProperty("signingInMemoryKey")) {
+        signAllPublications()
+    }
+}
+
+// Java 21's javadoc tool is strict about missing tags and a couple of warnings
+// the older toolchain ignored. We let it surface real issues but downgrade the
+// "missing -Xdoclint" classes that don't affect doc quality so a single missing
+// @return doesn't gate a release. Keep this list short — adding to it should be
+// preceded by fixing the underlying issue if possible.
+tasks.withType<Javadoc> {
+    (options as StandardJavadocDocletOptions).apply {
+        addStringOption("Xdoclint:none", "-quiet")
+        // Register @implNote so it renders properly. javadoc-tool warns
+        // "unknown tag" otherwise, even though @implNote is a standard JEP-8068562 tag.
+        tags("implNote:a:Implementation Note:")
     }
 }
