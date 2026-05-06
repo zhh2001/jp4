@@ -41,9 +41,6 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class SimpleL2Switch {
 
-    /** Ports we treat as "front-panel"; the controller floods to these on miss. */
-    private static final int[] FRONT_PORTS = { 1, 2, 3, 4 };
-
     /** MAC → ingress_port table built from PacketIns. ConcurrentHashMap because the
      *  callback runs on a different thread than main(). */
     private final Map<String, Integer> learned = new ConcurrentHashMap<>();
@@ -66,24 +63,27 @@ public final class SimpleL2Switch {
             SimpleL2Switch app = new SimpleL2Switch(sw);
             sw.onPacketIn(app::handlePacketIn);
 
-            // Inject demo traffic so the learn-and-forward cycle is observable.
-            // Frame 1: src=AA:00:00:00:00:01, dst=BB:00:00:00:00:02 from port 1.
-            //   → controller learns AA:..:01@1, floods (no entry for BB:..:02 yet).
-            // Frame 2: src=BB:00:00:00:00:02, dst=AA:00:00:00:00:01 from port 2.
-            //   → controller learns BB:..:02@2 AND finds AA:..:01@1 already learned;
-            //     the data-plane table now has AA:..:01@1 from frame 1, so frame 2's
-            //     reply (and any subsequent traffic to AA:..:01) takes the short path.
+            // Inject demo traffic so the learn cycle is observable on a single host
+            // without external traffic injection. The simple_l2.p4 program treats the
+            // controller-supplied PacketOut.egress_port as the simulated ingress port
+            // for the loopback demo (see the P4 source comment); both frames target a
+            // broadcast destination, so each misses l2_forward and triggers
+            // flood_via_cpu → PacketIn → learning.
             Thread.sleep(500);   // let the stream be fully active before we start sending
-            sendDemoFrame(sw, mac("AA:00:00:00:00:01"), mac("BB:00:00:00:00:02"), 1);
+            sendDemoFrame(sw, mac("AA:00:00:00:00:01"), mac("FF:FF:FF:FF:FF:FF"), 1);
             Thread.sleep(300);
-            sendDemoFrame(sw, mac("BB:00:00:00:00:02"), mac("AA:00:00:00:00:01"), 2);
+            sendDemoFrame(sw, mac("BB:00:00:00:00:02"), mac("FF:FF:FF:FF:FF:FF"), 2);
             Thread.sleep(800);
 
             System.out.println("[L2] learned table: " + app.learned);
         }
     }
 
-    /** Called once per PacketIn — runs on the jp4 callback executor. */
+    /** Called once per PacketIn — runs on the jp4 callback executor. The handler
+     *  learns srcAddr ↔ ingress_port from the PacketIn metadata and writes a
+     *  forwarding entry for srcAddr. Production controllers would also flood the
+     *  unknown-dst frame to other ports; this demo skips that step for output
+     *  clarity (the focus is on the learn-and-write cycle). */
     void handlePacketIn(PacketIn packet) {
         int ingressPort = packet.metadataInt("ingress_port");
         byte[] frame = packet.payload().toByteArray();
@@ -95,16 +95,11 @@ public final class SimpleL2Switch {
         String src = formatMac(frame, 6);
         System.out.printf("[L2] PacketIn  src=%s dst=%s ingress=%d%n", src, dst, ingressPort);
 
-        // 1. Learn src → ingress_port, install a forwarding entry for src.
-        Integer previous = learned.put(src, ingressPort);
-        if (previous == null || previous != ingressPort) {
+        // Learn src → ingress_port once. Subsequent PacketIns for the same src
+        // (e.g. from genuine topology changes) would call modify() in production;
+        // this demo is content with first-write-wins.
+        if (learned.putIfAbsent(src, ingressPort) == null) {
             installForwardEntry(src, ingressPort);
-        }
-
-        // 2. Flood out every front port that is NOT the ingress.
-        for (int port : FRONT_PORTS) {
-            if (port == ingressPort) continue;
-            sendOut(frame, port);
         }
     }
 
@@ -125,27 +120,18 @@ public final class SimpleL2Switch {
         }
     }
 
-    private void sendOut(byte[] frame, int egressPort) {
-        sw.send(PacketOut.builder()
-                .payload(frame)
-                .metadata("egress_port", egressPort)
-                .build());
-    }
-
-    private static void sendDemoFrame(P4Switch sw, Mac src, Mac dst, int ingressPort) {
+    private static void sendDemoFrame(P4Switch sw, Mac src, Mac dst, int simulatedIngressPort) {
         byte[] frame = ethFrame(src, dst, /*etherType*/ 0x0800,
                 "demo-l2-payload".getBytes());
-        // Set ingress_port via egress_port metadata trick? No — for this demo we want
-        // BMv2 to treat the packet as if it ingressed on FRONT_PORTS[ingressPort]. The
-        // simplest path is to send to that port and let BMv2 process it as a regular
-        // packet (PacketOut.egress_port forwards there; the next packet on that port
-        // ingresses normally). For self-contained reproducibility we accept that the
-        // demo's "ingress" is whatever BMv2 reports.
+        // simple_l2.p4 reads PacketOut.egress_port as the simulated ingress port for
+        // this loopback demo, so the table sees the frame as if it ingressed on that
+        // port. See the P4 source for why the field is repurposed.
         sw.send(PacketOut.builder()
                 .payload(frame)
-                .metadata("egress_port", ingressPort)
+                .metadata("egress_port", simulatedIngressPort)
                 .build());
-        System.out.printf("[L2] inject    src=%s dst=%s via port %d%n", src, dst, ingressPort);
+        System.out.printf("[L2] inject    src=%s dst=%s via simulated ingress %d%n",
+                src, dst, simulatedIngressPort);
     }
 
     private static byte[] ethFrame(Mac src, Mac dst, int etherType, byte[] payload) {

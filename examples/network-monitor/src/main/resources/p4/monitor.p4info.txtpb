@@ -22,5 +22,23 @@ controller_packet_metadata {
     bitwidth: 7
   }
 }
+controller_packet_metadata {
+  preamble {
+    id: 74440427
+    name: "packet_out"
+    alias: "packet_out"
+    annotations: "@controller_header(\"packet_out\")"
+  }
+  metadata {
+    id: 1
+    name: "egress_port"
+    bitwidth: 9
+  }
+  metadata {
+    id: 2
+    name: "_pad"
+    bitwidth: 7
+  }
+}
 type_info {
 }

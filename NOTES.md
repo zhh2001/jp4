@@ -202,6 +202,31 @@ the underlying `ClientCall`, leaves no in-flight state, and a follow-up
 `.all()` on the same switch returns the full table — i.e. the channel is
 not stuck after a mid-stream cancel.
 
+## BMv2 PacketIn delivery is primary-only
+
+P4Runtime spec §16.1 says PacketIn **MUST** be sent to the primary
+controller client and **SHOULD** be sent to backups. BMv2's PI library
+implements only the MUST: PacketIns are delivered to the primary
+client's StreamChannel and not broadcast to secondaries.
+
+Empirics recorded against `simple_switch_grpc` (Phase 10): a primary at
+`election_id=10` and a secondary at `election_id=1` are both connected
+to the same device; the primary injects 30 PacketOuts that loop back as
+30 PacketIns. The primary's subscriber observes all 30; the secondary's
+subscriber observes 0.
+
+Implication for jp4 users: when designing an HA topology with a
+secondary observer, do not assume PacketIn arrives on backup clients
+without verifying the target's behaviour. BMv2 doesn't broadcast;
+some Tofino / Stratum builds are expected to. The `network-monitor`
+example places its `packetInStream()` subscriber on the primary
+connection for this reason and explains the trade-off in its README.
+
+This is target-side behaviour, not a jp4 limitation. jp4's
+`packetInStream()` and `pollPacketIn(...)` work on any client (primary
+or secondary) — whether they actually receive packets depends on what
+the device sends.
+
 ## Docker BMv2 image tag pinning
 
 `DockerBackend.CANDIDATE_IMAGES` pins `p4lang/behavioral-model` to a

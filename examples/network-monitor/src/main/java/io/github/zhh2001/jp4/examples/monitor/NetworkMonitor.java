@@ -14,39 +14,33 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Passive network monitor — secondary controller observing the data plane.
+ * Passive network monitor — `Flow.Publisher` PacketIn observation + the
+ * read-without-primary contract.
  *
- * <p>Demonstrates the two-tier HA-monitor pattern: a primary controller owns
- * the device (pushes pipeline, can write), and a secondary observer reads
- * PacketIn from the same StreamChannel without primary privileges. P4Runtime
- * spec §6.4 permits secondaries to read; jp4's {@code readabilityException}
- * gate is correspondingly looser than the write gate (closed/broken only,
- * no mastership check).
- *
- * <p>Operating model:
+ * <p>Demonstrates two distinct things:
  * <ol>
- *   <li>Open a primary connection (election_id=10), push the {@code monitor.p4}
- *       pipeline.</li>
- *   <li>Open a secondary connection (election_id=1) on the same address. Confirm
- *       its mastership status reports "lost" (i.e. not primary).</li>
- *   <li>The secondary calls {@code loadPipeline()} — a read-only RPC that
- *       fetches the device's current P4Info — so its inbound packet parser has
- *       the metadata schema it needs. (Secondaries cannot {@code bindPipeline}
- *       because that's a write.)</li>
- *   <li>Subscribe the secondary to {@code packetInStream()} via a
- *       {@link Flow.Subscriber}.</li>
- *   <li>The primary injects synthetic Ethernet frames via
- *       {@code primary.send(PacketOut)}; BMv2's monitor.p4 unconditionally
- *       sends every ingress packet to the controller, so each PacketOut comes
- *       back as a PacketIn observable by the secondary subscriber.</li>
- *   <li>The subscriber tallies (count, total bytes) per ingress port and
- *       prints a summary at the end.</li>
+ *   <li><b>The Flow.Publisher subscription pattern</b> for PacketIn — the
+ *       reactive style most production HA monitors actually use, with a
+ *       backpressure-aware {@link Flow.Subscriber} that tallies stats per
+ *       ingress port.</li>
+ *   <li><b>Read-without-primary works.</b> A secondary client opens against
+ *       the same device with a lower election id, reports {@code Lost}
+ *       mastership, and calls {@code loadPipeline()} — a read-only RPC that
+ *       succeeds without primary privileges. This validates P4Runtime spec
+ *       §6.4 ("a controller can issue Read RPCs whether or not it is the
+ *       primary client") against jp4's looser-on-read gate.</li>
  * </ol>
  *
- * <p>This is a "two switches in one JVM, same device" pattern; in production
- * the primary lives in another process or another host. Maps to v3 §5
- * Scenarios A (connect/pipeline), E (Packet I/O via Flow.Publisher), and F
- * (lifecycle / mastership).
+ * <p>The PacketIn observation runs on the primary connection — not on the
+ * secondary — because BMv2 delivers PacketIn only to the primary client. Per
+ * spec §16.1 PacketIn MUST go to the primary and SHOULD go to backups; BMv2
+ * implements only the MUST. On a spec-compliant target that also broadcasts
+ * to backups (e.g. expected behaviour for some Tofino/Stratum builds), the
+ * same {@code packetInStream().subscribe(...)} code runs unchanged from a
+ * secondary. See {@code NOTES.md} for the BMv2 quirk in detail.
+ *
+ * <p>Two switches in one JVM share the device; in a real HA deployment they
+ * would live in different processes / hosts.
  */
 public final class NetworkMonitor {
 
@@ -59,42 +53,46 @@ public final class NetworkMonitor {
         P4Info p4info = P4Info.fromBytes(loadResource("/p4/monitor.p4info.txtpb"));
         DeviceConfig dc = new DeviceConfig.Bmv2(loadResource("/p4/monitor.json"));
 
-        // Primary: pushes pipeline, owns write side, injects synthetic traffic.
         try (P4Switch primary = P4Switch.connect(address)
                 .electionId(ElectionId.of(10))
                 .asPrimary()
                 .bindPipeline(p4info, dc)) {
             System.out.println("[MON] primary connected (election_id=10), pipeline pushed");
 
-            // Secondary: monitor — read-only.
-            try (P4Switch monitor = P4Switch.connect(address)
+            // 1. Read-without-primary demonstration: open a secondary just long
+            //    enough to prove loadPipeline() succeeds without primary privileges,
+            //    then close it. We do this BEFORE the primary subscribes / injects
+            //    so its lifecycle is self-contained.
+            try (P4Switch secondary = P4Switch.connect(address)
                     .electionId(ElectionId.of(1))
                     .asSecondary()) {
                 System.out.println("[MON] secondary connected (election_id=1)");
-                System.out.println("[MON] secondary mastership: " + monitor.mastership());
-
-                // Secondary cannot bindPipeline (it's a write); fetch the
-                // pipeline the primary already pushed.
-                monitor.loadPipeline();
-                System.out.println("[MON] secondary loaded pipeline from device");
-
-                Stats stats = new Stats();
-                monitor.packetInStream().subscribe(stats);
-
-                System.out.printf("[MON] injecting %d synthetic frames at %dms intervals…%n",
-                        N_FRAMES, INJECT_INTERVAL_MS);
-                for (int i = 0; i < N_FRAMES; i++) {
-                    int ingressPort = (i % 4) + 1;   // rotate across ports 1..4
-                    primary.send(PacketOut.builder()
-                            .payload(syntheticFrame(i))
-                            .build());     // monitor.p4 has no packet_out header
-                    Thread.sleep(INJECT_INTERVAL_MS);
-                }
-
-                // Drain — let the last few PacketIns reach the subscriber.
-                Thread.sleep(300);
-                stats.print(N_FRAMES);
+                System.out.println("[MON] secondary mastership: " + secondary.mastership());
+                secondary.loadPipeline();   // read-only RPC; succeeds for non-primary clients
+                System.out.println("[MON] secondary loadPipeline() OK — spec §6.4 read-without-primary verified");
             }
+
+            // 2. Flow.Publisher observation — production HA monitors use this
+            //    shape; runs on the primary here because BMv2 delivers PacketIn
+            //    only to the primary client (see this example's README and
+            //    NOTES.md "BMv2 PacketIn delivery is primary-only").
+            Stats stats = new Stats();
+            primary.packetInStream().subscribe(stats);
+
+            System.out.printf("[MON] injecting %d synthetic frames at %dms intervals…%n",
+                    N_FRAMES, INJECT_INTERVAL_MS);
+            for (int i = 0; i < N_FRAMES; i++) {
+                int simulatedIngressPort = (i % 4) + 1;     // rotate ports 1..4
+                primary.send(PacketOut.builder()
+                        .payload(syntheticFrame(i))
+                        .metadata("egress_port", simulatedIngressPort)
+                        .build());
+                Thread.sleep(INJECT_INTERVAL_MS);
+            }
+
+            // Drain — let the last few PacketIns reach the subscriber.
+            Thread.sleep(300);
+            stats.print(N_FRAMES);
         }
     }
 

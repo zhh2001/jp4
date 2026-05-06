@@ -41,21 +41,22 @@ Optional: `--args="my-bmv2-host:50051"` to override the device address.
 ```
 [MON] primary connected (election_id=10), pipeline pushed
 [MON] secondary connected (election_id=1)
-[MON] secondary mastership: Lost(...)
-[MON] secondary loaded pipeline from device
+[MON] secondary mastership: Lost[previousElectionId=null, currentPrimaryElectionId=ElectionId(10)]
+[MON] secondary loadPipeline() OK — spec §6.4 read-without-primary verified
 [MON] injecting 30 synthetic frames at 30ms intervals…
 [MON] observed 30 / 30 expected packets
-[MON]   port 1: 8 packets, 184 bytes total, 23 avg
-[MON]   port 2: 8 packets, 200 bytes total, 25 avg
-[MON]   port 3: 7 packets, 175 bytes total, 25 avg
-[MON]   port 4: 7 packets, 168 bytes total, 24 avg
+[MON]   port 1: 8 packets, 304 bytes total, 38 avg
+[MON]   port 2: 8 packets, 336 bytes total, 42 avg
+[MON]   port 3: 7 packets, 314 bytes total, 44 avg
+[MON]   port 4: 7 packets, 342 bytes total, 48 avg
 ```
 
-The `secondary mastership: Lost(...)` line is the proof point — the
-secondary's mastership status reads as not-primary, yet it still received
-every PacketIn. Per-port counts are determined by the demo's port-rotation
-pattern (`(seq % 4) + 1`); exact byte totals depend on the synthetic frame
-sizes the loop produces.
+The `secondary mastership: Lost[...]` line + `loadPipeline() OK` line are
+the proof points — a secondary client (lower election id) successfully
+issued a read-only RPC without holding primary, validating P4Runtime spec
+§6.4. Per-port counts are determined by the demo's port-rotation pattern
+(`(seq % 4) + 1`); exact byte totals depend on the synthetic frame sizes
+the loop produces.
 
 ## Try this next
 
@@ -69,10 +70,29 @@ sizes the loop produces.
 - Open the same secondary connection twice (two subscribers on two switches)
   to confirm BMv2 broadcasts PacketIn to both.
 
+## Why the observation runs on the primary
+
+P4Runtime spec §16.1 says PacketIn **MUST** be sent to the primary client
+and **SHOULD** be sent to backups. BMv2 implements only the MUST — it
+delivers PacketIn to the primary and nothing to secondaries. So the
+observation half of this example (the `Flow.Subscriber` for stats) lives
+on the primary connection.
+
+The secondary's lifecycle in this example is brief by design: it connects,
+its mastership reads as `Lost`, it issues a read-only RPC (`loadPipeline()`)
+that succeeds, and it closes. That's the spec §6.4 demonstration —
+"a controller can issue Read RPCs whether or not it is the primary client".
+
+On a target that **does** broadcast PacketIn to backups (some Tofino /
+Stratum builds), the same `Flow.Publisher` subscriber code attaches
+unchanged to the secondary instead of the primary. The Java code does not
+know or care which connection it is on. See the project's `NOTES.md` entry
+"BMv2 PacketIn delivery is primary-only" for the empirical detail.
+
 ## On the two-switch pattern
 
-In production, the primary controller usually lives in another process or
-host; the monitor connects with its own credentials and never claims
-primary. This example folds both into one JVM only so the demo is
-self-contained — the same `monitor` switch code (the inner try-with-resources
-block) is what you would deploy as a stand-alone secondary.
+In production, the primary and any secondaries usually live in different
+processes or hosts. This example folds both into one JVM only so the demo
+is self-contained — the secondary's `try-with-resources` block is what you
+would deploy as a stand-alone observer process against a target that
+broadcasts PacketIn.

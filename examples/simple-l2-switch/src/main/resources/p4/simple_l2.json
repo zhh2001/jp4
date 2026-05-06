@@ -3,7 +3,10 @@
     {
       "name" : "scalars_0",
       "id" : 0,
-      "fields" : []
+      "fields" : [
+        ["metadata_t.simulated_ingress_port", 9, false],
+        ["_padding_0", 7, false]
+      ]
     },
     {
       "name" : "standard_metadata",
@@ -195,7 +198,7 @@
       "id" : 0,
       "source_info" : {
         "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-        "line" : 111,
+        "line" : 128,
         "column" : 8,
         "source_fragment" : "MyDeparser"
       },
@@ -239,33 +242,7 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 72,
-            "column" : 8,
-            "source_fragment" : "std.egress_spec = port"
-          }
-        }
-      ]
-    },
-    {
-      "name" : "MyIngress.send_to_port",
-      "id" : 2,
-      "runtime_data" : [],
-      "primitives" : [
-        {
-          "op" : "assign",
-          "parameters" : [
-            {
-              "type" : "field",
-              "value" : ["standard_metadata", "egress_spec"]
-            },
-            {
-              "type" : "field",
-              "value" : ["packet_out", "egress_port"]
-            }
-          ],
-          "source_info" : {
-            "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 72,
+            "line" : 85,
             "column" : 8,
             "source_fragment" : "std.egress_spec = port"
           }
@@ -274,7 +251,7 @@
     },
     {
       "name" : "MyIngress.flood_via_cpu",
-      "id" : 3,
+      "id" : 2,
       "runtime_data" : [],
       "primitives" : [
         {
@@ -291,7 +268,7 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 76,
+            "line" : 89,
             "column" : 8,
             "source_fragment" : "std.egress_spec = 255"
           }
@@ -306,7 +283,7 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 77,
+            "line" : 90,
             "column" : 8,
             "source_fragment" : "hdr.packet_in.setValid()"
           }
@@ -320,14 +297,14 @@
             },
             {
               "type" : "field",
-              "value" : ["standard_metadata", "ingress_port"]
+              "value" : ["scalars", "metadata_t.simulated_ingress_port"]
             }
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 78,
+            "line" : 91,
             "column" : 8,
-            "source_fragment" : "hdr.packet_in.ingress_port = std.ingress_port"
+            "source_fragment" : "hdr.packet_in.ingress_port = meta.simulated_ingress_port"
           }
         },
         {
@@ -344,7 +321,7 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 79,
+            "line" : 92,
             "column" : 8,
             "source_fragment" : "hdr.packet_in._pad = 0"
           }
@@ -353,7 +330,7 @@
     },
     {
       "name" : "MyIngress.drop_pkt",
-      "id" : 4,
+      "id" : 3,
       "runtime_data" : [],
       "primitives" : [
         {
@@ -366,7 +343,7 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 82,
+            "line" : 95,
             "column" : 8,
             "source_fragment" : "mark_to_drop(std)"
           }
@@ -374,10 +351,29 @@
       ]
     },
     {
-      "name" : "simple_l2l101",
-      "id" : 5,
+      "name" : "simple_l2l116",
+      "id" : 4,
       "runtime_data" : [],
       "primitives" : [
+        {
+          "op" : "assign",
+          "parameters" : [
+            {
+              "type" : "field",
+              "value" : ["scalars", "metadata_t.simulated_ingress_port"]
+            },
+            {
+              "type" : "field",
+              "value" : ["packet_out", "egress_port"]
+            }
+          ],
+          "source_info" : {
+            "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
+            "line" : 116,
+            "column" : 12,
+            "source_fragment" : "meta.simulated_ingress_port = hdr.packet_out.egress_port"
+          }
+        },
         {
           "op" : "remove_header",
           "parameters" : [
@@ -388,9 +384,35 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 101,
+            "line" : 117,
             "column" : 12,
             "source_fragment" : "hdr.packet_out.setInvalid()"
+          }
+        }
+      ]
+    },
+    {
+      "name" : "simple_l2l119",
+      "id" : 5,
+      "runtime_data" : [],
+      "primitives" : [
+        {
+          "op" : "assign",
+          "parameters" : [
+            {
+              "type" : "field",
+              "value" : ["scalars", "metadata_t.simulated_ingress_port"]
+            },
+            {
+              "type" : "field",
+              "value" : ["standard_metadata", "ingress_port"]
+            }
+          ],
+          "source_info" : {
+            "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
+            "line" : 119,
+            "column" : 12,
+            "source_fragment" : "meta.simulated_ingress_port = std.ingress_port"
           }
         }
       ]
@@ -402,20 +424,20 @@
       "id" : 0,
       "source_info" : {
         "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-        "line" : 70,
+        "line" : 83,
         "column" : 8,
         "source_fragment" : "MyIngress"
       },
       "init_table" : "node_2",
       "tables" : [
         {
-          "name" : "tbl_send_to_port",
+          "name" : "tbl_simple_l2l116",
           "id" : 0,
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 100,
-            "column" : 12,
-            "source_fragment" : "send_to_port(hdr.packet_out.egress_port)"
+            "line" : 116,
+            "column" : 40,
+            "source_fragment" : "= hdr.packet_out.egress_port; ..."
           },
           "key" : [],
           "match_type" : "exact",
@@ -424,27 +446,27 @@
           "with_counters" : false,
           "support_timeout" : false,
           "direct_meters" : null,
-          "action_ids" : [2],
-          "actions" : ["MyIngress.send_to_port"],
-          "base_default_next" : "tbl_simple_l2l101",
+          "action_ids" : [4],
+          "actions" : ["simple_l2l116"],
+          "base_default_next" : "MyIngress.l2_forward",
           "next_tables" : {
-            "MyIngress.send_to_port" : "tbl_simple_l2l101"
+            "simple_l2l116" : "MyIngress.l2_forward"
           },
           "default_entry" : {
-            "action_id" : 2,
+            "action_id" : 4,
             "action_const" : true,
             "action_data" : [],
             "action_entry_const" : true
           }
         },
         {
-          "name" : "tbl_simple_l2l101",
+          "name" : "tbl_simple_l2l119",
           "id" : 1,
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 101,
-            "column" : 12,
-            "source_fragment" : "hdr.packet_out.setInvalid()"
+            "line" : 119,
+            "column" : 40,
+            "source_fragment" : "="
           },
           "key" : [],
           "match_type" : "exact",
@@ -454,10 +476,10 @@
           "support_timeout" : false,
           "direct_meters" : null,
           "action_ids" : [5],
-          "actions" : ["simple_l2l101"],
-          "base_default_next" : null,
+          "actions" : ["simple_l2l119"],
+          "base_default_next" : "MyIngress.l2_forward",
           "next_tables" : {
-            "simple_l2l101" : null
+            "simple_l2l119" : "MyIngress.l2_forward"
           },
           "default_entry" : {
             "action_id" : 5,
@@ -471,7 +493,7 @@
           "id" : 2,
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 85,
+            "line" : 98,
             "column" : 10,
             "source_fragment" : "l2_forward"
           },
@@ -489,7 +511,7 @@
           "with_counters" : false,
           "support_timeout" : false,
           "direct_meters" : null,
-          "action_ids" : [1, 3, 4, 0],
+          "action_ids" : [1, 2, 3, 0],
           "actions" : ["MyIngress.send_to_port", "MyIngress.flood_via_cpu", "MyIngress.drop_pkt", "NoAction"],
           "base_default_next" : null,
           "next_tables" : {
@@ -499,7 +521,7 @@
             "NoAction" : null
           },
           "default_entry" : {
-            "action_id" : 3,
+            "action_id" : 2,
             "action_const" : false,
             "action_data" : [],
             "action_entry_const" : false
@@ -513,7 +535,7 @@
           "id" : 0,
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-            "line" : 98,
+            "line" : 111,
             "column" : 12,
             "source_fragment" : "hdr.packet_out.isValid()"
           },
@@ -528,8 +550,8 @@
               }
             }
           },
-          "true_next" : "tbl_send_to_port",
-          "false_next" : "MyIngress.l2_forward"
+          "true_next" : "tbl_simple_l2l116",
+          "false_next" : "tbl_simple_l2l119"
         }
       ]
     },
@@ -538,7 +560,7 @@
       "id" : 1,
       "source_info" : {
         "filename" : "/home/howard/jp4/examples/simple-l2-switch/src/main/resources/p4/simple_l2.p4",
-        "line" : 108,
+        "line" : 125,
         "column" : 8,
         "source_fragment" : "MyEgress"
       },

@@ -3,7 +3,10 @@
     {
       "name" : "scalars_0",
       "id" : 0,
-      "fields" : []
+      "fields" : [
+        ["metadata_t.simulated_ingress_port", 9, false],
+        ["_padding_0", 7, false]
+      ]
     },
     {
       "name" : "standard_metadata",
@@ -29,8 +32,16 @@
       ]
     },
     {
-      "name" : "packet_in_h",
+      "name" : "packet_out_h",
       "id" : 2,
+      "fields" : [
+        ["egress_port", 9, false],
+        ["_pad", 7, false]
+      ]
+    },
+    {
+      "name" : "packet_in_h",
+      "id" : 3,
       "fields" : [
         ["ingress_port", 9, false],
         ["_pad", 7, false]
@@ -38,7 +49,7 @@
     },
     {
       "name" : "ethernet_t",
-      "id" : 3,
+      "id" : 4,
       "fields" : [
         ["dstAddr", 48, false],
         ["srcAddr", 48, false],
@@ -62,15 +73,22 @@
       "pi_omit" : true
     },
     {
-      "name" : "packet_in",
+      "name" : "packet_out",
       "id" : 2,
+      "header_type" : "packet_out_h",
+      "metadata" : false,
+      "pi_omit" : true
+    },
+    {
+      "name" : "packet_in",
+      "id" : 3,
       "header_type" : "packet_in_h",
       "metadata" : false,
       "pi_omit" : true
     },
     {
       "name" : "ethernet",
-      "id" : 3,
+      "id" : 4,
       "header_type" : "ethernet_t",
       "metadata" : false,
       "pi_omit" : true
@@ -100,6 +118,55 @@
         {
           "name" : "start",
           "id" : 0,
+          "parser_ops" : [],
+          "transitions" : [
+            {
+              "type" : "hexstr",
+              "value" : "0x00ff",
+              "mask" : null,
+              "next_state" : "parse_packet_out"
+            },
+            {
+              "type" : "default",
+              "value" : null,
+              "mask" : null,
+              "next_state" : "parse_ethernet"
+            }
+          ],
+          "transition_key" : [
+            {
+              "type" : "field",
+              "value" : ["standard_metadata", "ingress_port"]
+            }
+          ]
+        },
+        {
+          "name" : "parse_packet_out",
+          "id" : 1,
+          "parser_ops" : [
+            {
+              "parameters" : [
+                {
+                  "type" : "regular",
+                  "value" : "packet_out"
+                }
+              ],
+              "op" : "extract"
+            }
+          ],
+          "transitions" : [
+            {
+              "type" : "default",
+              "value" : null,
+              "mask" : null,
+              "next_state" : "parse_ethernet"
+            }
+          ],
+          "transition_key" : []
+        },
+        {
+          "name" : "parse_ethernet",
+          "id" : 2,
           "parser_ops" : [
             {
               "parameters" : [
@@ -131,7 +198,7 @@
       "id" : 0,
       "source_info" : {
         "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
-        "line" : 66,
+        "line" : 98,
         "column" : 8,
         "source_fragment" : "MyDeparser"
       },
@@ -146,8 +213,75 @@
   "learn_lists" : [],
   "actions" : [
     {
-      "name" : "monitor56",
+      "name" : "monitor83",
       "id" : 0,
+      "runtime_data" : [],
+      "primitives" : [
+        {
+          "op" : "assign",
+          "parameters" : [
+            {
+              "type" : "field",
+              "value" : ["scalars", "metadata_t.simulated_ingress_port"]
+            },
+            {
+              "type" : "field",
+              "value" : ["packet_out", "egress_port"]
+            }
+          ],
+          "source_info" : {
+            "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
+            "line" : 83,
+            "column" : 12,
+            "source_fragment" : "meta.simulated_ingress_port = hdr.packet_out.egress_port"
+          }
+        },
+        {
+          "op" : "remove_header",
+          "parameters" : [
+            {
+              "type" : "header",
+              "value" : "packet_out"
+            }
+          ],
+          "source_info" : {
+            "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
+            "line" : 84,
+            "column" : 12,
+            "source_fragment" : "hdr.packet_out.setInvalid()"
+          }
+        }
+      ]
+    },
+    {
+      "name" : "monitor86",
+      "id" : 1,
+      "runtime_data" : [],
+      "primitives" : [
+        {
+          "op" : "assign",
+          "parameters" : [
+            {
+              "type" : "field",
+              "value" : ["scalars", "metadata_t.simulated_ingress_port"]
+            },
+            {
+              "type" : "field",
+              "value" : ["standard_metadata", "ingress_port"]
+            }
+          ],
+          "source_info" : {
+            "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
+            "line" : 86,
+            "column" : 12,
+            "source_fragment" : "meta.simulated_ingress_port = std.ingress_port"
+          }
+        }
+      ]
+    },
+    {
+      "name" : "monitor88",
+      "id" : 2,
       "runtime_data" : [],
       "primitives" : [
         {
@@ -164,7 +298,7 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
-            "line" : 56,
+            "line" : 88,
             "column" : 8,
             "source_fragment" : "std.egress_spec = 255"
           }
@@ -179,7 +313,7 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
-            "line" : 57,
+            "line" : 89,
             "column" : 8,
             "source_fragment" : "hdr.packet_in.setValid()"
           }
@@ -193,14 +327,14 @@
             },
             {
               "type" : "field",
-              "value" : ["standard_metadata", "ingress_port"]
+              "value" : ["scalars", "metadata_t.simulated_ingress_port"]
             }
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
-            "line" : 58,
+            "line" : 90,
             "column" : 8,
-            "source_fragment" : "hdr.packet_in.ingress_port = std.ingress_port"
+            "source_fragment" : "hdr.packet_in.ingress_port = meta.simulated_ingress_port"
           }
         },
         {
@@ -217,7 +351,7 @@
           ],
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
-            "line" : 59,
+            "line" : 91,
             "column" : 8,
             "source_fragment" : "hdr.packet_in._pad = 0"
           }
@@ -231,18 +365,76 @@
       "id" : 0,
       "source_info" : {
         "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
-        "line" : 54,
+        "line" : 79,
         "column" : 8,
         "source_fragment" : "MyIngress"
       },
-      "init_table" : "tbl_monitor56",
+      "init_table" : "node_2",
       "tables" : [
         {
-          "name" : "tbl_monitor56",
+          "name" : "tbl_monitor83",
           "id" : 0,
           "source_info" : {
             "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
-            "line" : 56,
+            "line" : 83,
+            "column" : 40,
+            "source_fragment" : "= hdr.packet_out.egress_port; ..."
+          },
+          "key" : [],
+          "match_type" : "exact",
+          "type" : "simple",
+          "max_size" : 1024,
+          "with_counters" : false,
+          "support_timeout" : false,
+          "direct_meters" : null,
+          "action_ids" : [0],
+          "actions" : ["monitor83"],
+          "base_default_next" : "tbl_monitor88",
+          "next_tables" : {
+            "monitor83" : "tbl_monitor88"
+          },
+          "default_entry" : {
+            "action_id" : 0,
+            "action_const" : true,
+            "action_data" : [],
+            "action_entry_const" : true
+          }
+        },
+        {
+          "name" : "tbl_monitor86",
+          "id" : 1,
+          "source_info" : {
+            "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
+            "line" : 86,
+            "column" : 40,
+            "source_fragment" : "="
+          },
+          "key" : [],
+          "match_type" : "exact",
+          "type" : "simple",
+          "max_size" : 1024,
+          "with_counters" : false,
+          "support_timeout" : false,
+          "direct_meters" : null,
+          "action_ids" : [1],
+          "actions" : ["monitor86"],
+          "base_default_next" : "tbl_monitor88",
+          "next_tables" : {
+            "monitor86" : "tbl_monitor88"
+          },
+          "default_entry" : {
+            "action_id" : 1,
+            "action_const" : true,
+            "action_data" : [],
+            "action_entry_const" : true
+          }
+        },
+        {
+          "name" : "tbl_monitor88",
+          "id" : 2,
+          "source_info" : {
+            "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
+            "line" : 88,
             "column" : 24,
             "source_fragment" : "= 255; ..."
           },
@@ -253,14 +445,14 @@
           "with_counters" : false,
           "support_timeout" : false,
           "direct_meters" : null,
-          "action_ids" : [0],
-          "actions" : ["monitor56"],
+          "action_ids" : [2],
+          "actions" : ["monitor88"],
           "base_default_next" : null,
           "next_tables" : {
-            "monitor56" : null
+            "monitor88" : null
           },
           "default_entry" : {
-            "action_id" : 0,
+            "action_id" : 2,
             "action_const" : true,
             "action_data" : [],
             "action_entry_const" : true
@@ -268,14 +460,38 @@
         }
       ],
       "action_profiles" : [],
-      "conditionals" : []
+      "conditionals" : [
+        {
+          "name" : "node_2",
+          "id" : 0,
+          "source_info" : {
+            "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
+            "line" : 81,
+            "column" : 12,
+            "source_fragment" : "hdr.packet_out.isValid()"
+          },
+          "expression" : {
+            "type" : "expression",
+            "value" : {
+              "op" : "d2b",
+              "left" : null,
+              "right" : {
+                "type" : "field",
+                "value" : ["packet_out", "$valid$"]
+              }
+            }
+          },
+          "true_next" : "tbl_monitor83",
+          "false_next" : "tbl_monitor86"
+        }
+      ]
     },
     {
       "name" : "egress",
       "id" : 1,
       "source_info" : {
         "filename" : "/home/howard/jp4/examples/network-monitor/src/main/resources/p4/monitor.p4",
-        "line" : 63,
+        "line" : 95,
         "column" : 8,
         "source_fragment" : "MyEgress"
       },

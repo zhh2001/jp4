@@ -46,17 +46,20 @@ A successful run prints something like:
 
 ```
 [L2] connected as primary on 127.0.0.1:50051, pipeline pushed
-[L2] inject    src=AA:00:00:00:00:01 dst=BB:00:00:00:00:02 via port 1
-[L2] PacketIn  src=AA:00:00:00:00:01 dst=BB:00:00:00:00:02 ingress=1
+[L2] inject    src=aa:00:00:00:00:01 dst=ff:ff:ff:ff:ff:ff via simulated ingress 1
+[L2] PacketIn  src=AA:00:00:00:00:01 dst=FF:FF:FF:FF:FF:FF ingress=1
 [L2] LEARN     AA:00:00:00:00:01 → port 1 (entry installed)
-[L2] inject    src=BB:00:00:00:00:02 dst=AA:00:00:00:00:01 via port 2
-[L2] PacketIn  src=BB:00:00:00:00:02 dst=AA:00:00:00:00:01 ingress=2
+[L2] inject    src=bb:00:00:00:00:02 dst=ff:ff:ff:ff:ff:ff via simulated ingress 2
+[L2] PacketIn  src=BB:00:00:00:00:02 dst=FF:FF:FF:FF:FF:FF ingress=2
 [L2] LEARN     BB:00:00:00:00:02 → port 2 (entry installed)
 [L2] learned table: {AA:00:00:00:00:01=1, BB:00:00:00:00:02=2}
 ```
 
 The two `LEARN` lines confirm jp4 wrote forwarding entries; subsequent traffic
 to either MAC would short-circuit through the data plane (no controller hop).
+Both demo frames target the broadcast MAC `FF:FF:FF:FF:FF:FF` so each one
+misses `l2_forward` and triggers the learning path; in production any
+unknown destination triggers the same flow.
 
 ## Try this next
 
@@ -71,6 +74,10 @@ to either MAC would short-circuit through the data plane (no controller hop).
 ## Self-traffic note
 
 The example uses `sw.send(...)` to inject demo frames so that you can see the
-learn-and-forward cycle on a single machine without `mininet` / `tcpreplay` /
-real interfaces. In production, traffic comes from the device's physical
-ports; the controller code itself stays the same.
+learn cycle on a single machine without `mininet` / `tcpreplay` / real
+interfaces. The `simple_l2.p4` program treats the controller-supplied
+`packet_out.egress_port` as the **simulated ingress port** for this loopback
+demo (see the comment in the P4 source); a production controller's PacketOut
+would use that field with its conventional egress meaning, and real ingress
+traffic would come from the network. The Java controller code stays the
+same.
