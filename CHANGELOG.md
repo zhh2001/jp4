@@ -10,12 +10,6 @@ No unreleased changes. v0.1.0 is current.
 
 ## [0.1.0] — 2026-05-07
 
-<!-- Maintainer: replace YYYY-MM-DD with the date `./gradlew publishToMavenCentral`
-     runs and the deployment is clicked Publish at central.sonatype.com. The
-     Maven-Central indexing lag (~10-30 min) means the Portal-click date is the
-     truthful "released" date for this header. Do not backdate. -->
-
-
 First release line. Public API surface is locked across v0.1.x patches.
 
 ### Added
