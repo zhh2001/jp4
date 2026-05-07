@@ -38,26 +38,37 @@ java --enable-native-access=ALL-UNNAMED -jar my-controller.jar
 
 Documented in `CHANGELOG.md`'s "Known issues" section for v0.1.0.
 
-## CI workflow uses Node 20 actions (deprecated)
+## CI workflow uses Node 20 actions (resolved at Phase 13 D1)
 
-`.github/workflows/ci.yml` references `actions/checkout@v4`, `actions/setup-java@v4`,
-and `gradle/actions/setup-gradle@v4`. All three are still on Node.js 20 internally,
-which GitHub has marked deprecated. The runner emits a non-blocking warning on every
-run today.
+Originally observed at Phase 4D: `.github/workflows/ci.yml` referenced
+`actions/checkout@v4`, `actions/setup-java@v4`, `gradle/actions/setup-gradle@v4`,
+and `actions/upload-artifact@v4`. All four shipped Node.js 20 internally, which
+GitHub had marked deprecated, surfacing a non-blocking warning on every CI run.
 
-### Timeline
+### Timeline (historical reference)
 
-- **2026-06-02** — GitHub will start enforcing Node 24 for actions that have a Node 24
+- **2026-06-02** — GitHub starts enforcing Node 24 for actions that have a Node 24
   release available; the deprecated-warning-only path ends here.
 - **2026-09-16** — GitHub removes Node 20 from runners entirely; any action still on
   Node 20 stops working.
 
-### Mitigation (deferred to Phase 11)
+### Resolution
 
-When the upstream actions ship Node 24-compatible major versions, bump the pinned
-versions in the matrix step. Likely candidates by then: `@v5` for one or more of these.
-Track the action repos a few weeks before the 2026-06-02 cutoff. No code change here
-yet — current pins are functional.
+Phase 13 D1 bumped all four actions to their first Node-24 major release:
+
+- `actions/checkout@v5` — released 2025-08-11. Release notes: "Update actions
+  checkout to use node 24."
+- `actions/setup-java@v5` — released 2025-08-21. Release notes: "Breaking
+  Changes: Upgrade to node 24."
+- `gradle/actions/setup-gradle@v5` — released 2025-10-01. Release notes:
+  "Breaking Changes: Upgrade to node 24."
+- `actions/upload-artifact@v5` — released 2025-10-24. Release notes: "this
+  update supports Node `v24.x`."
+
+All four require GitHub Actions runner `v2.327.1` or newer; GitHub-hosted
+runners auto-update, so the bump is transparent on the standard `ubuntu-latest`
+runner this repo uses. The bump landed ~30 days ahead of the 2026-06-02
+enforcement deadline.
 
 ## BMv2 does not validate p4info / deviceConfig consistency
 
