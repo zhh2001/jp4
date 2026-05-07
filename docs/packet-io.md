@@ -91,7 +91,7 @@ that demonstrates `loadPipeline()` works without primary privileges:
 ```
 [MON] primary connected (election_id=10), pipeline pushed
 [MON] secondary connected (election_id=1)
-[MON] secondary mastership: Lost[previousElectionId=null, currentPrimaryElectionId=ElectionId(10)]
+[MON] secondary mastership: Lost(prev=null, primary=10)
 [MON] secondary loadPipeline() OK — spec §6.4 read-without-primary verified
 [MON] injecting 30 synthetic frames at 30ms intervals…
 [MON] observed 30 / 30 expected packets

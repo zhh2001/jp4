@@ -41,7 +41,7 @@ Optional: `--args="my-bmv2-host:50051"` to override the device address.
 ```
 [MON] primary connected (election_id=10), pipeline pushed
 [MON] secondary connected (election_id=1)
-[MON] secondary mastership: Lost[previousElectionId=null, currentPrimaryElectionId=ElectionId(10)]
+[MON] secondary mastership: Lost(prev=null, primary=10)
 [MON] secondary loadPipeline() OK — spec §6.4 read-without-primary verified
 [MON] injecting 30 synthetic frames at 30ms intervals…
 [MON] observed 30 / 30 expected packets
@@ -52,7 +52,7 @@ Optional: `--args="my-bmv2-host:50051"` to override the device address.
 [MON] stream completed
 ```
 
-The `secondary mastership: Lost[...]` line + `loadPipeline() OK` line are
+The `secondary mastership: Lost(...)` line + `loadPipeline() OK` line are
 the proof points — a secondary client (lower election id) successfully
 issued a read-only RPC without holding primary, validating P4Runtime spec
 §6.4. Per-port counts are determined by the demo's port-rotation pattern

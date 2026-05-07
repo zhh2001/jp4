@@ -6,17 +6,49 @@ import io.github.zhh2001.jp4.types.ElectionId;
  * Snapshot of mastership state delivered to {@code onMastershipChange} listeners.
  * Sealed; pattern-match on the variant for compile-time exhaustive handling.
  *
+ * <p>Both variants override {@code toString()} with a compact, grep-friendly form
+ * intended for log lines:
+ *
+ * <pre>
+ *   Acquired(primary=10)
+ *   Lost(prev=null, primary=10)
+ *   Lost(prev=5, primary=10)
+ * </pre>
+ *
+ * The nested election id is rendered as just its numeric value rather than the
+ * {@code ElectionId(N)} wrap form that {@link ElectionId#toString()} produces, so
+ * a grep on {@code "primary=10"} catches both states symmetrically.
+ *
  * @since 0.1.0
  */
 public sealed interface MastershipStatus permits MastershipStatus.Acquired, MastershipStatus.Lost {
 
     boolean isLost();
 
+    /**
+     * Renders an election id for inclusion in a {@link MastershipStatus} {@code toString()}:
+     * just the numeric value (unsigned), or the literal {@code "null"} when {@code id} is null.
+     */
+    private static String renderElectionId(ElectionId id) {
+        if (id == null) {
+            return "null";
+        }
+        if (id.high() == 0L) {
+            return Long.toUnsignedString(id.low());
+        }
+        return id.toBigInteger().toString();
+    }
+
     /** This client is currently primary; {@link #ourElectionId()} won the arbitration. */
     record Acquired(ElectionId ourElectionId) implements MastershipStatus {
         @Override
         public boolean isLost() {
             return false;
+        }
+
+        @Override
+        public String toString() {
+            return "Acquired(primary=" + renderElectionId(ourElectionId) + ")";
         }
     }
 
@@ -29,6 +61,12 @@ public sealed interface MastershipStatus permits MastershipStatus.Acquired, Mast
         @Override
         public boolean isLost() {
             return true;
+        }
+
+        @Override
+        public String toString() {
+            return "Lost(prev=" + renderElectionId(previousElectionId)
+                    + ", primary=" + renderElectionId(currentPrimaryElectionId) + ")";
         }
     }
 }

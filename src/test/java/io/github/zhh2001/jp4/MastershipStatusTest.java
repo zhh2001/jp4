@@ -30,4 +30,32 @@ class MastershipStatusTest {
         };
         assertFalse(lost);
     }
+
+    @Test
+    void acquiredToStringIsCompact() {
+        MastershipStatus s = new MastershipStatus.Acquired(ElectionId.of(10));
+        assertEquals("Acquired(primary=10)", s.toString());
+    }
+
+    @Test
+    void lostToStringWithNullPreviousId() {
+        MastershipStatus s = new MastershipStatus.Lost(null, ElectionId.of(10));
+        assertEquals("Lost(prev=null, primary=10)", s.toString());
+    }
+
+    @Test
+    void lostToStringWithBothIds() {
+        MastershipStatus s = new MastershipStatus.Lost(ElectionId.of(5), ElectionId.of(10));
+        assertEquals("Lost(prev=5, primary=10)", s.toString());
+    }
+
+    @Test
+    void toStringRendersHighWordElectionIdAsUnsigned128Bit() {
+        // high != 0 → render via toBigInteger().toString(); not the
+        // unsigned-low-only fast path. Exercises the full 128-bit path so a
+        // future change that drops it would show up as a test break.
+        ElectionId withHigh = ElectionId.of(1L, 0L);  // 2^64
+        MastershipStatus s = new MastershipStatus.Acquired(withHigh);
+        assertEquals("Acquired(primary=18446744073709551616)", s.toString());
+    }
 }
