@@ -212,7 +212,7 @@ Add a fresh `[Unreleased]` section to `CHANGELOG.md`. Commit.
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes referenced from the GitHub release.
 - [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — `publish-dry-run`
   job validates the POM on every push.
-- [`~/.gradle/gradle.properties`](~) — secrets (NEVER in this repo).
+- `~/.gradle/gradle.properties` — secrets (NEVER in this repo).
 
 ## Reference
 

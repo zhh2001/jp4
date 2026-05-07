@@ -49,6 +49,7 @@ Optional: `--args="my-bmv2-host:50051"` to override the device address.
 [MON]   port 2: 8 packets, 336 bytes total, 42 avg
 [MON]   port 3: 7 packets, 314 bytes total, 44 avg
 [MON]   port 4: 7 packets, 342 bytes total, 48 avg
+[MON] stream completed
 ```
 
 The `secondary mastership: Lost[...]` line + `loadPipeline() OK` line are

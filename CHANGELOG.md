@@ -8,7 +8,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 No unreleased changes. v0.1.0 is current.
 
-## [0.1.0] — 2026-05
+## [0.1.0] — YYYY-MM-DD
+
+<!-- Maintainer: replace YYYY-MM-DD with the date `./gradlew publishToMavenCentral`
+     runs and the deployment is clicked Publish at central.sonatype.com. The
+     Maven-Central indexing lag (~10-30 min) means the Portal-click date is the
+     truthful "released" date for this header. Do not backdate. -->
+
 
 First release line. Public API surface is locked across v0.1.x patches.
 
@@ -115,6 +121,22 @@ committed for any specific date:
   (`Lost[previousElectionId=null, currentPrimaryElectionId=ElectionId(10)]`);
   a compact form like `Lost(prev=null, primary=10)` reads better
   in pasted log output and downstream documentation.
+- Digest and IdleTimeout stream-message handlers (P4Runtime spec
+  §7 / §11.4) — currently ignored in `InboundStreamHandler` with a
+  `// v0.2 work` comment. v0.2 will add typed subscription APIs
+  matching the existing `onPacketIn` / `onMastershipChange` shape.
+- Examples-CI assertion strengthening — current `examples-l2` /
+  `examples-lb` / `examples-monitor` jobs grep a small set of
+  distinctive lines from each example's stdout. v0.2 should diff the
+  full captured output against each example's README "Expected
+  output" block, so docs-vs-actual mismatches (like the missing
+  `[MON] stream completed` trailer caught at v0.1 acceptance) fail
+  CI rather than waiting for a manual review pass.
+- GitHub Actions runtime upgrade — bump `actions/checkout` /
+  `actions/setup-java` / `gradle/actions/setup-gradle` from `@v4` to
+  `@v5` (or current non-Node-20 majors). GitHub Actions Node 20
+  deprecation enforcement: **2026-06-02**. Tracked in `NOTES.md`
+  item 2.
 
 [Unreleased]: https://github.com/zhh2001/jp4/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/zhh2001/jp4/releases/tag/v0.1.0

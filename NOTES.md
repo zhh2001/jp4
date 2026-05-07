@@ -36,7 +36,7 @@ JDK 24+:
 java --enable-native-access=ALL-UNNAMED -jar my-controller.jar
 ```
 
-This will be folded into the official README in Phase 10.
+Documented in `CHANGELOG.md`'s "Known issues" section for v0.1.0.
 
 ## CI workflow uses Node 20 actions (deprecated)
 
