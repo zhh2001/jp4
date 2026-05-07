@@ -6,7 +6,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-No unreleased changes. v0.1.0 is current.
+(future v0.2 work tracked in the Roadmap section)
 
 ## [0.1.0] — 2026-05-07
 
