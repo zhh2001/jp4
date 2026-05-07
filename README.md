@@ -5,6 +5,7 @@ device, push pipelines, read and write table entries, and send and receive
 packets through the StreamChannel.
 
 [![CI](https://github.com/zhh2001/jp4/actions/workflows/ci.yml/badge.svg)](https://github.com/zhh2001/jp4/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.zhh2001/jp4)](https://central.sonatype.com/artifact/io.github.zhh2001/jp4)
 ![JDK](https://img.shields.io/badge/JDK-21%2B-blue)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 
