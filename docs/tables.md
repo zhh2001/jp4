@@ -17,7 +17,7 @@ runs.
 
 ```java
 TableEntry e = TableEntry.in("MyIngress.ipv4_lpm")
-        .match("hdr.ipv4.dstAddr", new Match.Lpm(Ip4.of("10.0.1.0").toBytes(), 24))
+        .match("hdr.ipv4.dstAddr", Match.lpm("10.0.1.0/24"))
         .action("MyIngress.forward").param("port", 1)
         .build();
 ```
@@ -52,11 +52,8 @@ helper so the construction site stays one line. The
 
 ```java
 private static TableEntry routeEntry(String cidr, int port) {
-    String[] parts = cidr.split("/");
-    Ip4 prefix = Ip4.of(parts[0]);
-    int prefixLen = Integer.parseInt(parts[1]);
     return TableEntry.in("MyIngress.backend_lookup")
-            .match("hdr.ipv4.dstAddr", new Match.Lpm(prefix.toBytes(), prefixLen))
+            .match("hdr.ipv4.dstAddr", Match.lpm(cidr))
             .action("MyIngress.forward").param("port", port)
             .build();
 }
@@ -222,7 +219,7 @@ write-side builder:
 
 ```java
 List<TableEntry> hits = sw.read("MyIngress.ipv4_lpm")
-        .match("hdr.ipv4.dstAddr", new Match.Lpm(Ip4.of("10.0.1.0").toBytes(), 24))
+        .match("hdr.ipv4.dstAddr", Match.lpm("10.0.1.0/24"))
         .all();
 ```
 

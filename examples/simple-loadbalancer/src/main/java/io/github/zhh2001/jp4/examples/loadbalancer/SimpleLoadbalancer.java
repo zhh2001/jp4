@@ -6,7 +6,6 @@ import io.github.zhh2001.jp4.match.Match;
 import io.github.zhh2001.jp4.pipeline.DeviceConfig;
 import io.github.zhh2001.jp4.pipeline.P4Info;
 import io.github.zhh2001.jp4.types.Bytes;
-import io.github.zhh2001.jp4.types.Ip4;
 
 import java.io.InputStream;
 import java.util.LinkedHashMap;
@@ -90,11 +89,8 @@ public final class SimpleLoadbalancer {
 
     // SNIPPET_START routeEntry
     private static TableEntry routeEntry(String cidr, int port) {
-        String[] parts = cidr.split("/");
-        Ip4 prefix = Ip4.of(parts[0]);
-        int prefixLen = Integer.parseInt(parts[1]);
         return TableEntry.in("MyIngress.backend_lookup")
-                .match("hdr.ipv4.dstAddr", new Match.Lpm(prefix.toBytes(), prefixLen))
+                .match("hdr.ipv4.dstAddr", Match.lpm(cidr))
                 .action("MyIngress.forward").param("port", port)
                 .build();
     }
