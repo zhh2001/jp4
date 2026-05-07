@@ -32,9 +32,8 @@ runtime — P4Runtime is the dependency, jp4 is the binding.
 
 ## Why jp4
 
-Other P4Runtime clients exist in the ecosystem.
-[**finsy**](https://github.com/plvision/finsy) is the Python equivalent;
-if your tooling is Python, use it. **p4runtime-go-client** covers the Go
+Other P4Runtime clients exist in the ecosystem. **finsy** is the Python equivalent;
+if your tooling is Python, use it. **[p4runtime-go-controller](https://github.com/zhh2001/p4runtime-go-controller)** covers the Go
 side. jp4 fills the Java gap — embed it in any Java application, no
 controller framework attached. **ONOS** is a complete SDN controller
 platform (multi-protocol, distributed, application model); jp4 is a
