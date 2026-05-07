@@ -2,6 +2,7 @@ package io.github.zhh2001.jp4.entity;
 
 import io.github.zhh2001.jp4.types.Bytes;
 
+import java.math.BigInteger;
 import java.util.Map;
 import java.util.Objects;
 
@@ -48,6 +49,84 @@ public final class ActionInstance {
      */
     public Bytes param(String paramName) {
         return params.get(paramName);
+    }
+
+    /**
+     * Convenience accessor that interprets the parameter as an unsigned big-endian
+     * integer and returns the value as a Java {@code int}. Mirrors the read-side
+     * shape of {@link io.github.zhh2001.jp4.entity.PacketIn#metadataInt(String)}:
+     * width is checked against the 31-bit signed-int range (the high bit is
+     * reserved for sign) and absent fields are reported with the known parameter
+     * list to aid call-site debugging.
+     *
+     * <p>Use {@link #paramLong(String)} for parameters whose bit-width fits in 63
+     * bits but exceeds 31, and {@link #param(String)} (returning {@link Bytes}) for
+     * any wider value or when binary handling is preferred.
+     *
+     * <p>A zero-length or all-zero parameter byte sequence is interpreted as the
+     * value {@code 0}; this matches P4Runtime's natural unsigned encoding.
+     *
+     * @param paramName the parameter name as declared in P4Info
+     * @return the unsigned-big-endian integer value of the parameter
+     * @throws IllegalStateException if no parameter with {@code paramName} exists
+     *         on this instance, or the value is wider than 31 bits
+     * @throws NullPointerException if {@code paramName} is null
+     * @see #paramLong(String)
+     * @see #param(String)
+     * @since 1.0.0
+     */
+    public int paramInt(String paramName) {
+        Objects.requireNonNull(paramName, "paramName");
+        Bytes b = params.get(paramName);
+        if (b == null) {
+            throw new IllegalStateException(
+                    "ActionInstance has no parameter '" + paramName
+                            + "' (known: " + params.keySet() + ")");
+        }
+        BigInteger bi = new BigInteger(1, b.toByteArray());
+        if (bi.bitLength() > 31) {
+            throw new IllegalStateException(
+                    "parameter '" + paramName + "' has width " + bi.bitLength()
+                            + " bits, exceeds 31-bit signed int range; "
+                            + "use paramLong or param(String) directly");
+        }
+        return bi.intValueExact();
+    }
+
+    /**
+     * Convenience accessor that interprets the parameter as an unsigned big-endian
+     * integer and returns the value as a Java {@code long}. Width is checked
+     * against the 63-bit signed-long range; otherwise behaves identically to
+     * {@link #paramInt(String)}.
+     *
+     * <p>Use {@link #param(String)} (returning {@link Bytes}) for parameters wider
+     * than 63 bits or when binary handling is preferred.
+     *
+     * @param paramName the parameter name as declared in P4Info
+     * @return the unsigned-big-endian long value of the parameter
+     * @throws IllegalStateException if no parameter with {@code paramName} exists
+     *         on this instance, or the value is wider than 63 bits
+     * @throws NullPointerException if {@code paramName} is null
+     * @see #paramInt(String)
+     * @see #param(String)
+     * @since 1.0.0
+     */
+    public long paramLong(String paramName) {
+        Objects.requireNonNull(paramName, "paramName");
+        Bytes b = params.get(paramName);
+        if (b == null) {
+            throw new IllegalStateException(
+                    "ActionInstance has no parameter '" + paramName
+                            + "' (known: " + params.keySet() + ")");
+        }
+        BigInteger bi = new BigInteger(1, b.toByteArray());
+        if (bi.bitLength() > 63) {
+            throw new IllegalStateException(
+                    "parameter '" + paramName + "' has width " + bi.bitLength()
+                            + " bits, exceeds 63-bit signed long range; "
+                            + "use param(String) directly for wider values");
+        }
+        return bi.longValueExact();
     }
 
     @Override

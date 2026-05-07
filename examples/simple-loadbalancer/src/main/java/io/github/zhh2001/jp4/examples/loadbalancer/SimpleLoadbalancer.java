@@ -5,7 +5,6 @@ import io.github.zhh2001.jp4.entity.TableEntry;
 import io.github.zhh2001.jp4.match.Match;
 import io.github.zhh2001.jp4.pipeline.DeviceConfig;
 import io.github.zhh2001.jp4.pipeline.P4Info;
-import io.github.zhh2001.jp4.types.Bytes;
 
 import java.io.InputStream;
 import java.util.LinkedHashMap;
@@ -101,8 +100,7 @@ public final class SimpleLoadbalancer {
         System.out.printf("[LB] backend_lookup %s: %d entries%n", label, got.size());
         for (TableEntry e : got) {
             Match.Lpm key = (Match.Lpm) e.match("hdr.ipv4.dstAddr");
-            Bytes portBytes = e.action().param("port");
-            int port = portBytes == null ? -1 : new java.math.BigInteger(1, portBytes.toByteArray()).intValue();
+            int port = e.action().paramInt("port");
             System.out.printf("[LB]   %s/%d → port %d%n",
                     formatIpv4(key.value().canonical().toByteArray()),
                     key.prefixLen(), port);
