@@ -64,4 +64,33 @@ class MacTest {
         assertEquals(6, b.length());
         assertArrayEquals(new byte[]{(byte) 0xde, (byte) 0xad, (byte) 0xbe, (byte) 0xef, 0, 1}, b.toByteArray());
     }
+
+    @Test
+    void fromBytesHappyPath() {
+        Mac m = Mac.fromBytes(new byte[]{(byte) 0xde, (byte) 0xad, (byte) 0xbe, (byte) 0xef, 0, 1});
+        assertEquals(Mac.of("de:ad:be:ef:00:01"), m);
+    }
+
+    @Test
+    void fromBytesRejectsWrongLength() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Mac.fromBytes(new byte[5]));
+        assertThrows(IllegalArgumentException.class,
+                () -> Mac.fromBytes(new byte[7]));
+        assertThrows(IllegalArgumentException.class,
+                () -> Mac.fromBytes(new byte[0]));
+    }
+
+    @Test
+    void fromBytesRejectsNull() {
+        assertThrows(NullPointerException.class, () -> Mac.fromBytes(null));
+    }
+
+    @Test
+    void fromBytesIsDefensiveCopy() {
+        byte[] src = new byte[]{(byte) 0xde, (byte) 0xad, (byte) 0xbe, (byte) 0xef, 0, 1};
+        Mac m = Mac.fromBytes(src);
+        src[0] = 0;
+        assertEquals(Mac.of("de:ad:be:ef:00:01"), m);
+    }
 }

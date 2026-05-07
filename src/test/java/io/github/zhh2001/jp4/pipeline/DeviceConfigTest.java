@@ -49,4 +49,56 @@ class DeviceConfigTest {
         assertEquals(new DeviceConfig.Bmv2(new byte[]{1, 2}), new DeviceConfig.Bmv2(new byte[]{1, 2}));
         assertNotEquals(new DeviceConfig.Bmv2(new byte[]{1, 2}), new DeviceConfig.Bmv2(new byte[]{1, 3}));
     }
+
+    @Test
+    void bmv2FromBytesHappyPath() {
+        DeviceConfig.Bmv2 cfg = DeviceConfig.Bmv2.fromBytes("{}".getBytes());
+        assertArrayEquals("{}".getBytes(), cfg.json());
+    }
+
+    @Test
+    void bmv2FromBytesAcceptsEmpty() {
+        DeviceConfig.Bmv2 cfg = DeviceConfig.Bmv2.fromBytes(new byte[0]);
+        assertEquals(0, cfg.bytes().length);
+    }
+
+    @Test
+    void bmv2FromBytesRejectsNull() {
+        assertThrows(NullPointerException.class,
+                () -> DeviceConfig.Bmv2.fromBytes(null));
+    }
+
+    @Test
+    void bmv2FromBytesIsDefensiveCopy() {
+        byte[] src = new byte[]{1, 2, 3};
+        DeviceConfig.Bmv2 cfg = DeviceConfig.Bmv2.fromBytes(src);
+        src[0] = 99;
+        assertArrayEquals(new byte[]{1, 2, 3}, cfg.json());
+    }
+
+    @Test
+    void rawFromBytesHappyPath() {
+        DeviceConfig.Raw cfg = DeviceConfig.Raw.fromBytes(new byte[]{(byte) 0xde, (byte) 0xad});
+        assertArrayEquals(new byte[]{(byte) 0xde, (byte) 0xad}, cfg.bytes());
+    }
+
+    @Test
+    void rawFromBytesAcceptsEmpty() {
+        DeviceConfig.Raw cfg = DeviceConfig.Raw.fromBytes(new byte[0]);
+        assertEquals(0, cfg.bytes().length);
+    }
+
+    @Test
+    void rawFromBytesRejectsNull() {
+        assertThrows(NullPointerException.class,
+                () -> DeviceConfig.Raw.fromBytes(null));
+    }
+
+    @Test
+    void rawFromBytesIsDefensiveCopy() {
+        byte[] src = new byte[]{1, 2, 3};
+        DeviceConfig.Raw cfg = DeviceConfig.Raw.fromBytes(src);
+        src[0] = 99;
+        assertArrayEquals(new byte[]{1, 2, 3}, cfg.bytes());
+    }
 }

@@ -45,6 +45,26 @@ public record Ip6(byte[] octets) {
         return new Ip6(addr.getAddress());
     }
 
+    /**
+     * Wraps a 16-byte big-endian octet array as an {@code Ip6}.
+     *
+     * <p>For textual input use {@link #of(String)}; this factory is the binary
+     * counterpart, useful when an IPv6 address arrives already as raw octets (e.g.
+     * read back from a device or extracted from {@link Bytes#toByteArray()}).
+     *
+     * <p>The input is defensively copied; later mutation of the supplied array does
+     * not affect the constructed {@code Ip6}.
+     *
+     * @param bytes 16-byte big-endian octet array
+     * @return an {@code Ip6} wrapping a defensive copy of {@code bytes}
+     * @throws NullPointerException if {@code bytes} is null
+     * @throws IllegalArgumentException if {@code bytes.length != 16}
+     * @since 1.0.0
+     */
+    public static Ip6 fromBytes(byte[] bytes) {
+        return new Ip6(bytes);
+    }
+
     @Override
     public byte[] octets() {
         return octets.clone();

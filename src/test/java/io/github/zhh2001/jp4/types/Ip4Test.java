@@ -55,4 +55,33 @@ class Ip4Test {
     void toStringIsDottedQuad() {
         assertEquals("10.0.0.1", Ip4.of("10.0.0.1").toString());
     }
+
+    @Test
+    void fromBytesHappyPath() {
+        Ip4 ip = Ip4.fromBytes(new byte[]{10, 0, 0, 1});
+        assertEquals(Ip4.of("10.0.0.1"), ip);
+    }
+
+    @Test
+    void fromBytesRejectsWrongLength() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Ip4.fromBytes(new byte[3]));
+        assertThrows(IllegalArgumentException.class,
+                () -> Ip4.fromBytes(new byte[5]));
+        assertThrows(IllegalArgumentException.class,
+                () -> Ip4.fromBytes(new byte[0]));
+    }
+
+    @Test
+    void fromBytesRejectsNull() {
+        assertThrows(NullPointerException.class, () -> Ip4.fromBytes(null));
+    }
+
+    @Test
+    void fromBytesIsDefensiveCopy() {
+        byte[] src = new byte[]{10, 0, 0, 1};
+        Ip4 ip = Ip4.fromBytes(src);
+        src[0] = 99;
+        assertArrayEquals(new byte[]{10, 0, 0, 1}, ip.octets());
+    }
 }

@@ -49,4 +49,35 @@ class Ip6Test {
         assertEquals(Ip6.of("2001:db8::1"), Ip6.of("2001:db8::1"));
         assertNotEquals(Ip6.of("::1"), Ip6.of("::2"));
     }
+
+    @Test
+    void fromBytesHappyPath() {
+        byte[] loopback = new byte[16];
+        loopback[15] = 1;
+        assertEquals(Ip6.of("::1"), Ip6.fromBytes(loopback));
+    }
+
+    @Test
+    void fromBytesRejectsWrongLength() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Ip6.fromBytes(new byte[15]));
+        assertThrows(IllegalArgumentException.class,
+                () -> Ip6.fromBytes(new byte[17]));
+        assertThrows(IllegalArgumentException.class,
+                () -> Ip6.fromBytes(new byte[0]));
+    }
+
+    @Test
+    void fromBytesRejectsNull() {
+        assertThrows(NullPointerException.class, () -> Ip6.fromBytes(null));
+    }
+
+    @Test
+    void fromBytesIsDefensiveCopy() {
+        byte[] src = new byte[16];
+        src[15] = 1;
+        Ip6 ip = Ip6.fromBytes(src);
+        src[15] = 99;
+        assertEquals(1, ip.octets()[15]);
+    }
 }

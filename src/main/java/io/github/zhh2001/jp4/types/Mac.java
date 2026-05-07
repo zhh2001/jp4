@@ -40,6 +40,28 @@ public record Mac(byte[] octets) {
     }
 
     /**
+     * Wraps a 6-byte octet array as a {@code Mac}.
+     *
+     * <p>For textual input use {@link #of(String)}; for the {@code long} primitive
+     * form use {@link #of(long)}; this factory is the binary counterpart, useful
+     * when a MAC arrives already as raw octets (e.g. read back from a device or
+     * extracted from {@link Bytes#toByteArray()}).
+     *
+     * <p>The input is defensively copied; later mutation of the supplied array does
+     * not affect the constructed {@code Mac}.
+     *
+     * @param bytes 6-byte octet array (octets 0..5 from highest-order byte to
+     *              lowest-order byte of the EUI-48 representation)
+     * @return a {@code Mac} wrapping a defensive copy of {@code bytes}
+     * @throws NullPointerException if {@code bytes} is null
+     * @throws IllegalArgumentException if {@code bytes.length != 6}
+     * @since 1.0.0
+     */
+    public static Mac fromBytes(byte[] bytes) {
+        return new Mac(bytes);
+    }
+
+    /**
      * Builds a MAC from the low 48 bits of {@code value}, big-endian.
      */
     public static Mac of(long value) {

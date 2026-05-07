@@ -45,6 +45,27 @@ public record Ip4(byte[] octets) {
     }
 
     /**
+     * Wraps a 4-byte big-endian octet array as an {@code Ip4}.
+     *
+     * <p>For textual input use {@link #of(String)}; for the 32-bit primitive form
+     * use {@link #of(int)}; this factory is the binary counterpart, useful when an
+     * IPv4 address arrives already as raw octets (e.g. read back from a device or
+     * extracted from {@link Bytes#toByteArray()}).
+     *
+     * <p>The input is defensively copied; later mutation of the supplied array does
+     * not affect the constructed {@code Ip4}.
+     *
+     * @param bytes 4-byte big-endian octet array
+     * @return an {@code Ip4} wrapping a defensive copy of {@code bytes}
+     * @throws NullPointerException if {@code bytes} is null
+     * @throws IllegalArgumentException if {@code bytes.length != 4}
+     * @since 1.0.0
+     */
+    public static Ip4 fromBytes(byte[] bytes) {
+        return new Ip4(bytes);
+    }
+
+    /**
      * Builds an IPv4 address from the 32 bits of {@code value}, big-endian.
      */
     public static Ip4 of(int value) {

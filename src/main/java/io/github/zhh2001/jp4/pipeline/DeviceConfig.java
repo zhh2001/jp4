@@ -41,6 +41,27 @@ public sealed interface DeviceConfig permits DeviceConfig.Bmv2, DeviceConfig.Raw
             }
         }
 
+        /**
+         * Wraps a BMv2 JSON byte array (typically the output of
+         * {@code p4c --target bmv2 --arch v1model -o ...json ...}) as a {@code Bmv2}
+         * device config. For loading from a file path use {@link #fromFile(Path)};
+         * use this factory when the JSON is already in memory (resource bundle,
+         * in-memory cache, network fetch).
+         *
+         * <p>The input is defensively copied; later mutation of the supplied array
+         * does not affect the constructed {@code Bmv2}. An empty byte array is a
+         * valid input that produces an empty config — semantically a "no device
+         * config" payload, equivalent to {@link DeviceConfig#empty()}.
+         *
+         * @param json the BMv2 JSON content (UTF-8 bytes)
+         * @return a {@code Bmv2} wrapping a defensive copy of {@code json}
+         * @throws NullPointerException if {@code json} is null
+         * @since 1.0.0
+         */
+        public static Bmv2 fromBytes(byte[] json) {
+            return new Bmv2(json);
+        }
+
         @Override
         public byte[] json() {
             return json.clone();
@@ -81,6 +102,26 @@ public sealed interface DeviceConfig permits DeviceConfig.Bmv2, DeviceConfig.Raw
             } catch (IOException e) {
                 throw new RuntimeException("Failed to read device config from " + path, e);
             }
+        }
+
+        /**
+         * Wraps a pre-encoded device-config byte array as a {@code Raw}. For
+         * loading from a file path use {@link #fromFile(Path)}; use this factory
+         * when the bytes are already in memory.
+         *
+         * <p>{@code Raw} performs no parsing or validation — the bytes are passed
+         * to the device verbatim. The input is defensively copied; later mutation
+         * of the supplied array does not affect the constructed {@code Raw}. An
+         * empty byte array is a valid input, equivalent to
+         * {@link DeviceConfig#empty()}.
+         *
+         * @param bytes the target-specific device-config payload
+         * @return a {@code Raw} wrapping a defensive copy of {@code bytes}
+         * @throws NullPointerException if {@code bytes} is null
+         * @since 1.0.0
+         */
+        public static Raw fromBytes(byte[] bytes) {
+            return new Raw(bytes);
         }
 
         @Override
