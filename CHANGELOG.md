@@ -6,7 +6,88 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-(future v0.2 work tracked in the Roadmap section)
+(future v1.x work tracked in the Roadmap section)
+
+## [1.0.0] — YYYY-MM-DD
+
+<!-- Maintainer: replace YYYY-MM-DD with the date `./gradlew publishToMavenCentral`
+     runs and the deployment is clicked Publish at central.sonatype.com. The
+     Maven-Central indexing lag (~10-30 min) means the Portal-click date is the
+     truthful "released" date for this header. Do not backdate. -->
+
+v1.0 locks the public API surface; the surface is stable across v1.x
+patches. See [`docs/migration-0.1-to-1.0.md`](docs/migration-0.1-to-1.0.md)
+for v0.1 → v1.0 surface changes with before/after examples.
+
+### Added
+
+- **`ActionInstance.paramInt(String)` and `paramLong(String)`**
+  (commit `b544caa`) — convenience accessors mirroring
+  `PacketIn.metadataInt(String)`. Extract a primitive integer
+  parameter without manually wrapping
+  `new BigInteger(1, b.toByteArray())`. Throws
+  `IllegalStateException` on absent parameter or value too wide for
+  the target primitive.
+- **`PacketIn.metadataLong(String)`** (commit `b544caa`) —
+  long-shaped sister of `metadataInt(String)`, closing the asymmetry
+  with `paramInt` / `paramLong` on `ActionInstance`.
+- **Symmetric `fromBytes(byte[])` factories** (commit `42e3cfa`) —
+  `Ip4.fromBytes(byte[])`, `Ip6.fromBytes(byte[])`,
+  `Mac.fromBytes(byte[])`, `DeviceConfig.Bmv2.fromBytes(byte[])`,
+  `DeviceConfig.Raw.fromBytes(byte[])`. The naming family mirrors
+  the pre-existing `P4Info.fromBytes(byte[])`. Defensive copy on
+  construction.
+
+### Changed
+
+- **`MastershipStatus.toString()` format** (commit `23481ce`) —
+  replaced the default record rendering with a compact, grep-friendly
+  form: `Acquired(primary=10)`, `Lost(prev=null, primary=10)`,
+  `Lost(prev=5, primary=10)`. The unified `primary=N` field name lets
+  one grep pattern catch both states. Practically disruptive for log
+  parsers; the underlying `ElectionId.toString()` is unchanged.
+- **`DeviceConfig.{Bmv2,Raw}.fromFile`** (commit `2bb1acd`) — wraps
+  `IOException` as `java.io.UncheckedIOException` instead of plain
+  `RuntimeException`. Strictly more specific (subclass of
+  `RuntimeException`), so existing `catch (RuntimeException)`
+  continues to work unchanged.
+- **Accessor methods reject null parameter** (commit `ff71c89`) —
+  `ActionInstance.param(String)`, `PacketIn.metadata(String)`, and
+  `TableEntry.match(String)` now throw `NullPointerException` for a
+  null name, aligning with the project-wide null-rejection convention
+  documented in each `package-info.java`. Unknown but non-null names
+  still return `null` as before.
+- **`MastershipStatus.Acquired(null)` rejected** (commit `ff71c89`) —
+  the `Acquired` record's canonical constructor now rejects a null
+  `ourElectionId` with `NullPointerException`. The `Lost` record's
+  two `ElectionId` fields remain nullable on purpose.
+- **Actionable error messages on width-overflow** (commit `b544caa`) —
+  the `IllegalStateException` thrown by `metadataInt` / `metadataLong`
+  / `paramInt` / `paramLong` when a value exceeds the target
+  primitive's range now names the recommended alternative ("use
+  metadataLong or metadata(String) directly").
+
+### Documentation
+
+- **Thread-safety contracts** (commit `9c58ee6`) — explicit
+  thread-safety paragraphs on 11 user-facing classes (the four
+  builders, `ReadQuery`, three sealed-type interfaces, and three
+  schema-family final classes). Builders are not safe for concurrent
+  use; sealed-type record variants and schema metadata are safe to
+  share across threads.
+- **Null contract** (commit `ff71c89`) — explicit project-wide
+  convention statement in all four `package-info.java` files: public
+  methods reject null arguments with `NullPointerException` unless
+  documented otherwise. Methods that accept null on purpose document
+  the null semantics in their `@param`.
+- **Production readiness** (commit `b106cfa`) — README
+  `## Production readiness` section with three subsections:
+  validation status (what the CI matrix exercises), production-ready
+  scope, known limitations and v1.x roadmap.
+- **Migration guide** (commit `8f20b03`) — new
+  [`docs/migration-0.1-to-1.0.md`](docs/migration-0.1-to-1.0.md)
+  with before/after examples and per-change severity tags for
+  callers updating from v0.1.
 
 ## [0.1.0] — 2026-05-07
 
@@ -87,10 +168,9 @@ First release line. Public API surface is locked across v0.1.x patches.
   BMv2 should add explicit retry around `P4Switch.connect`. See
   `NOTES.md`.
 
-### Roadmap (v0.2 candidates)
+### Roadmap (v1.x candidates)
 
-These were noticed during v0.1 development and are tracked but not
-committed for any specific date:
+These are tracked for v1.x point releases without committed dates:
 
 - Multi-switch coordination (a `P4Controller` with deliberate fan-out
   / parallelism / error-aggregation semantics).
@@ -101,36 +181,19 @@ committed for any specific date:
 - `DeviceConfig.Tofino` variant alongside `Bmv2` and `Raw`.
 - `sw.onPacketDropped(Consumer<DropEvent>)` hook for backpressure
   observability.
-- Symmetric `fromBytes` factories on `DeviceConfig.Bmv2 / .Raw`,
-  `Ip4` / `Mac` / `Ip6`. `ActionInstance.paramInt(...)` / `paramLong(...)`
-  to mirror `PacketIn.metadataInt(...)`.
 - `ReconnectPolicy.preserveRoleOnReconnect()` so primary clients
   re-arbitrate automatically after an auto-reconnect.
-- `Match.lpm(String cidr)` CIDR-string factory (e.g.
-  `Match.lpm("10.0.1.0/24")`) so common LPM construction is one call
-  instead of three. Scope (IPv4-only / IPv6-only / both via
-  prefix-detection) decided at v0.2 design time.
-- `MastershipStatus.Lost` / `Acquired` `toString()` simplification.
-  Current rendering is verbose
-  (`Lost[previousElectionId=null, currentPrimaryElectionId=ElectionId(10)]`);
-  a compact form like `Lost(prev=null, primary=10)` reads better
-  in pasted log output and downstream documentation.
 - Digest and IdleTimeout stream-message handlers (P4Runtime spec
-  §7 / §11.4) — currently ignored in `InboundStreamHandler` with a
-  `// v0.2 work` comment. v0.2 will add typed subscription APIs
-  matching the existing `onPacketIn` / `onMastershipChange` shape.
+  §7 / §11.4) — currently dropped at the inbound parser; v1.x will
+  add typed subscription APIs matching the existing `onPacketIn` /
+  `onMastershipChange` shape.
 - Examples-CI assertion strengthening — current `examples-l2` /
   `examples-lb` / `examples-monitor` jobs grep a small set of
-  distinctive lines from each example's stdout. v0.2 should diff the
+  distinctive lines from each example's stdout. v1.x should diff the
   full captured output against each example's README "Expected
-  output" block, so docs-vs-actual mismatches (like the missing
-  `[MON] stream completed` trailer caught at v0.1 acceptance) fail
-  CI rather than waiting for a manual review pass.
-- GitHub Actions runtime upgrade — bump `actions/checkout` /
-  `actions/setup-java` / `gradle/actions/setup-gradle` from `@v4` to
-  `@v5` (or current non-Node-20 majors). GitHub Actions Node 20
-  deprecation enforcement: **2026-06-02**. Tracked in `NOTES.md`
-  item 2.
+  output" block, so docs-vs-actual mismatches fail CI rather than
+  waiting for a manual review pass.
 
-[Unreleased]: https://github.com/zhh2001/jp4/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/zhh2001/jp4/releases/tag/v1.0.0
 [0.1.0]: https://github.com/zhh2001/jp4/releases/tag/v0.1.0
