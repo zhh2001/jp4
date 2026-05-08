@@ -14,6 +14,11 @@ import java.util.Objects;
  * planned for v0.2 — until then, encode Tofino contexts manually and pass via
  * {@link Raw}.
  *
+ * <p>Both variants are immutable records, safe to share across threads. The
+ * byte[]-bearing canonical constructors of {@link Bmv2} and {@link Raw}
+ * defensively copy on construction; the {@link #bytes()} accessor returns a
+ * fresh defensive copy on each call.
+ *
  * @since 0.1.0
  */
 public sealed interface DeviceConfig permits DeviceConfig.Bmv2, DeviceConfig.Raw {

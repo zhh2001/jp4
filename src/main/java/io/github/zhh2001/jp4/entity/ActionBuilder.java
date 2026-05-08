@@ -21,6 +21,11 @@ import java.util.Objects;
  *
  * <p>Calling {@code .param} twice for the same name replaces the earlier value.
  *
+ * <p>Not safe for concurrent use; one {@code ActionBuilder} is constructed on
+ * a single thread before passing back to its parent {@link TableEntryBuilder}.
+ * The resulting {@link ActionInstance} is immutable and safe to share across
+ * threads.
+ *
  * @since 0.1.0
  */
 public final class ActionBuilder {

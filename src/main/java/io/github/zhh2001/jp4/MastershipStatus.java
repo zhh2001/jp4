@@ -19,6 +19,8 @@ import io.github.zhh2001.jp4.types.ElectionId;
  * {@code ElectionId(N)} wrap form that {@link ElectionId#toString()} produces, so
  * a grep on {@code "primary=10"} catches both states symmetrically.
  *
+ * <p>Both variants are immutable records, safe to share across threads.
+ *
  * @since 0.1.0
  */
 public sealed interface MastershipStatus permits MastershipStatus.Acquired, MastershipStatus.Lost {

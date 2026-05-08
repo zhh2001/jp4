@@ -10,6 +10,9 @@ import java.util.Objects;
 /**
  * Read-only metadata for one P4 action, derived from P4Info.
  *
+ * <p>Instances are constructed once during P4Info parsing and are immutable
+ * thereafter; safe to share across threads.
+ *
  * @since 0.1.0
  */
 public final class ActionInfo {

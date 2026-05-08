@@ -13,6 +13,11 @@ import io.github.zhh2001.jp4.entity.TableEntry;
  * known-list message on a malformed key, action, or parameter — the call site
  * fails fast rather than deferring the failure to {@code execute()}.
  *
+ * <p>Implementations are not safe for concurrent use; one {@code BatchBuilder}
+ * instance accumulates updates on a single thread before {@link #execute()}
+ * finalises the batch. Once {@code execute()} returns, the {@link WriteResult}
+ * is immutable and safe to share across threads.
+ *
  * @since 0.1.0
  */
 public interface BatchBuilder {

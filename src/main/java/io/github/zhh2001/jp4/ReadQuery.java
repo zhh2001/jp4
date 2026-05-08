@@ -25,6 +25,24 @@ import java.util.stream.Stream;
  * filtering and {@code fields(...)} for projection. The signatures here are stable;
  * those extensions go on {@code ReadQuery}, not on {@code P4Switch}.
  *
+ * <p>Threading model: terminal operations are dispatched on the switch's
+ * outbound executor; results return to the calling thread.
+ * <ul>
+ *   <li>{@link #all()} / {@link #one()} block the caller until the device
+ *       responds, then return on the calling thread.</li>
+ *   <li>{@link #allAsync()} / {@link #oneAsync()} return a
+ *       {@link CompletableFuture} that completes on the outbound executor;
+ *       {@code thenApply} / {@code thenAccept} stages run wherever the caller
+ *       dispatches them.</li>
+ *   <li>{@link #stream()} initiates the read on the outbound executor but
+ *       consumes on the calling thread; multiple stream consumers are
+ *       independent.</li>
+ *   <li>A {@code ReadQuery} instance is itself immutable and safe to pass
+ *       across threads; typical usage chains construction and terminal call
+ *       on a single thread, but a query can be constructed once and dispatched
+ *       on multiple threads independently.</li>
+ * </ul>
+ *
  * @since 0.1.0
  */
 public interface ReadQuery {

@@ -28,6 +28,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * the chain reads as one expression. Defaults: {@code deviceId=0}, {@code electionId=1},
  * {@link ReconnectPolicy#noRetry()}, packet-in queue capacity 1024.
  *
+ * <p>Not safe for concurrent use; one instance should be confined to a single
+ * thread. The fluent chain mutates internal state, so external synchronization
+ * is required to share a builder across threads. Once {@link #asPrimary()} or
+ * {@link #asSecondary()} returns, the produced {@link P4Switch} is thread-safe
+ * per its own threading-model documentation.
+ *
  * @since 0.1.0
  */
 public final class Connector {

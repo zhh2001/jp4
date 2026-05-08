@@ -23,6 +23,11 @@ import java.util.Objects;
  *
  * <p>Calling {@code .match} for the same field twice replaces the earlier value.
  *
+ * <p>Not safe for concurrent use; one builder should be confined to a single
+ * thread. The fluent chain mutates internal state, so external synchronization
+ * is required to share a builder across threads. The {@link TableEntry}
+ * returned by {@link #build()} is immutable and safe to share.
+ *
  * @since 0.1.0
  */
 public final class TableEntryBuilder {

@@ -11,6 +11,12 @@ import java.util.Objects;
  * P4Runtime {@code FieldMatch} oneof variants. Use {@code switch} on a returned
  * {@code Match} for compile-time exhaustive handling.
  *
+ * <p>All five variants are immutable records, safe to share across threads. The
+ * byte[]-bearing variants ({@link Exact}, {@link Lpm}, {@link Ternary},
+ * {@link Range}, {@link Optional}) wrap their {@link Bytes} fields, which
+ * defensively copy on construction; mutating an input array does not affect a
+ * constructed {@code Match} value.
+ *
  * @since 0.1.0
  */
 public sealed interface Match permits Match.Exact, Match.Lpm, Match.Ternary, Match.Range, Match.Optional {

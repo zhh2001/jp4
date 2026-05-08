@@ -13,6 +13,9 @@ import java.util.Set;
  * to {@link P4Info#fromBytes(byte[])} and friends; users obtain instances through
  * {@link P4Info#table(String)}.
  *
+ * <p>Instances are constructed once during P4Info parsing and are immutable
+ * thereafter; safe to share across threads.
+ *
  * @since 0.1.0
  */
 public final class TableInfo {

@@ -27,6 +27,11 @@ import java.util.Set;
  * binary protobuf first (the common machine-generated form) and falls back to
  * P4Runtime text format on parse failure.
  *
+ * <p>Instances are constructed once during P4Info parsing and are immutable
+ * thereafter; safe to share across threads. Forward and reverse name/id
+ * indexes are computed at construction; collection-returning accessors expose
+ * immutable views.
+ *
  * @since 0.1.0
  */
 public final class P4Info {
