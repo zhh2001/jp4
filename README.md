@@ -140,14 +140,87 @@ targets should function but are not in the verification matrix; specific
 device behaviours that differ from BMv2 (e.g. the partial-failure shape
 documented in [`NOTES.md`](NOTES.md)) are noted as device-side.
 
-## Status
+## Production readiness
 
-v0.1 is the first release line; the public API surface is locked in this
-release line and will not break across v0.1.x patches. Features deferred
-to v0.2 (multi-switch coordination, action profiles, counters / meters /
-registers, multicast, Tofino device config, additional pipeline actions,
-`ReadQuery.where(filter)` / `.fields(projection)`) are listed in
-[`CHANGELOG.md`](CHANGELOG.md) under the "Roadmap" heading.
+v1.0 locks the public API surface; the surface is stable across v1.x
+patches. v1.x adds capabilities (see roadmap below); 2.0 is the
+earliest version where the v1.0 surface is allowed to break.
+
+### Validation status
+
+The CI matrix (8 jobs per push) exercises:
+
+- **BMv2** (`p4lang/behavioral-model`, digest-pinned `:latest` content
+  as of 2026-05-05): Docker image on Ubuntu CI runners; native binaries
+  on Linux dev hosts.
+- **JDK 21** (Temurin, LTS) and **JDK 25** (preview) build matrix.
+- **Mastership arbitration** — single primary + multiple secondaries,
+  primary handover, re-arbitration after lost primary.
+- **Pipeline push** via `SetForwardingPipelineConfig` — P4Info text +
+  binary protobuf, BMv2 device-config JSON.
+- **Table CRUD** — insert / read / modify / delete, batch Write RPCs
+  with per-update partial-failure attribution.
+- **All five match kinds** — exact, lpm, ternary, range, optional.
+- **PacketIn / PacketOut** via StreamChannel, including
+  `controller_packet_metadata` decoding.
+- **Auto-reconnect** — stream-error recovery, election-id preservation
+  across reconnect, configurable backoff.
+- **282 unit + integration tests** across 8 CI jobs (build×2,
+  docs-lint, examples-l2 / examples-lb / examples-monitor,
+  publish-dry-run).
+- **Linux** — Ubuntu CI runners + WSL2 development host.
+
+Untested environments — expected to work but not validated:
+
+- **Hardware P4 targets** (Tofino, Mellanox/NVIDIA, Cisco Silicon One,
+  other ASICs). jp4 implements the P4Runtime gRPC spec faithfully —
+  proto sources are vendored unmodified from
+  [`p4lang/p4runtime`](https://github.com/p4lang/p4runtime) — and
+  should work on any spec-compliant target. Hardware testing is
+  community-driven; users deploying on hardware are encouraged to
+  share results in
+  [GitHub Discussions](https://github.com/zhh2001/jp4/discussions) so
+  this list can grow with verified deployments.
+- **macOS / Windows JVMs**. jp4 has no platform-specific code; should
+  work on any JDK 21+ but not validated.
+
+### Production-ready scope
+
+v1.0 is production-ready for:
+
+- Single P4Runtime device control from a Java application.
+- BMv2-based testing, development, and CI environments.
+- Educational and research SDN controllers.
+- Custom packet-processing controllers (PacketIn / PacketOut over the
+  StreamChannel).
+- Embedding in JVM applications already on Java 21+.
+
+### Known limitations and v1.x roadmap
+
+What jp4 1.0 does **not** cover:
+
+- **Multi-switch coordination** — a controller of N>1 switches with
+  fan-out / parallelism / error-aggregation semantics. v1.x roadmap;
+  v1.0 users compose `List<P4Switch>` themselves.
+- **Hardware target validation** — see "Untested environments" above.
+- **High-throughput production benchmarks** — jp4's performance
+  envelope under sustained PacketIn load (>10k pps) has not been
+  measured. Run a load test before relying on jp4 in high-throughput
+  paths.
+- **Stream messages beyond PacketIn / MasterArbitrationUpdate** —
+  Digest and IdleTimeout notifications are dropped at the inbound
+  parser today; typed handlers are v1.x roadmap.
+- **Other entity-type reads** — counters, meters, registers, action
+  profiles, multicast groups, packet-replication. v1.x roadmap.
+- **Tofino-specific `DeviceConfig`** — currently use
+  `DeviceConfig.Raw` for Tofino contexts; a typed
+  `DeviceConfig.Tofino` is v1.x roadmap.
+
+BMv2-specific runtime quirks (partial-failure shape,
+mastership-transition retry pattern, PacketIn-primary-only delivery,
+others) are documented in [`NOTES.md`](NOTES.md). The full v1.x
+roadmap candidate list lives in [`CHANGELOG.md`](CHANGELOG.md) under
+the "Roadmap" heading.
 
 ## Engineering notes
 
