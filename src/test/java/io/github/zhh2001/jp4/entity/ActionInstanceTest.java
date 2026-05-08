@@ -109,4 +109,13 @@ class ActionInstanceTest {
         ActionInstance a = build(Map.of("port", Bytes.of()));
         assertEquals(0L, a.paramLong("port"));
     }
+
+    @Test
+    void paramRejectsNullName() {
+        ActionInstance a = build(Map.of("port", Bytes.ofInt(7)));
+        NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> a.param(null));
+        assertEquals("paramName", ex.getMessage(),
+                "NPE message should be the rejected parameter name (per Objects.requireNonNull convention)");
+    }
 }

@@ -35,9 +35,16 @@ public final class PacketIn {
         return payload;
     }
 
-    /** Returns the metadata field by name, or {@code null} if the device did not
-     *  carry a value for that field on this packet. */
+    /**
+     * Returns the metadata field by name, or {@code null} if the device did not
+     * carry a value for that field on this packet.
+     *
+     * @param name the field name as declared in the {@code controller_packet_metadata}
+     * @return the field value as raw {@link Bytes}, or {@code null} if absent
+     * @throws NullPointerException if {@code name} is null
+     */
     public Bytes metadata(String name) {
+        Objects.requireNonNull(name, "name");
         return metadata.get(name);
     }
 

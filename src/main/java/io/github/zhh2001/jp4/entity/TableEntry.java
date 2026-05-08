@@ -51,8 +51,14 @@ public final class TableEntry {
      * Returns the {@link Match} value bound to {@code fieldName}, or {@code null} if
      * the field is not part of this entry's key. Use {@code switch} on the returned
      * {@code Match} for exhaustive handling of the five match kinds.
+     *
+     * @param fieldName the match-field name as declared in P4Info
+     * @return the {@link Match} bound to {@code fieldName}, or {@code null} if
+     *         the field is not part of this entry's key
+     * @throws NullPointerException if {@code fieldName} is null
      */
     public Match match(String fieldName) {
+        Objects.requireNonNull(fieldName, "fieldName");
         return matchByField.get(fieldName);
     }
 

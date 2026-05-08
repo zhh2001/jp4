@@ -30,6 +30,14 @@
  * value types (Bytes / Mac / Ip4 / Ip6 / ElectionId) are in
  * {@code io.github.zhh2001.jp4.types}.
  *
+ * <p>Null arguments to public methods are rejected with
+ * {@link NullPointerException} unless explicitly documented otherwise.
+ * Individual methods may still document {@code @throws NullPointerException}
+ * for emphasis where the contract contrasts with similarly-shaped APIs
+ * (e.g., accessor methods that look like {@link java.util.Map#get(Object)}
+ * but reject null keys). Methods that accept null and behave defensively
+ * document the null semantics explicitly in their {@code @param} description.
+ *
  * @since 0.1.0
  */
 package io.github.zhh2001.jp4.entity;

@@ -30,6 +30,14 @@
  * <p>See {@code docs/error-handling.md} for guidance on which
  * exception fires when.
  *
+ * <p>Null arguments to public methods are rejected with
+ * {@link NullPointerException} unless explicitly documented otherwise.
+ * Individual methods may still document {@code @throws NullPointerException}
+ * for emphasis where the contract contrasts with similarly-shaped APIs
+ * (e.g., accessor methods that look like {@link java.util.Map#get(Object)}
+ * but reject null keys). Methods that accept null and behave defensively
+ * document the null semantics explicitly in their {@code @param} description.
+ *
  * @since 0.1.0
  */
 package io.github.zhh2001.jp4.error;

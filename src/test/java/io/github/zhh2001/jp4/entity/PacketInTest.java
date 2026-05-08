@@ -110,4 +110,13 @@ class PacketInTest {
         PacketIn p = build(Map.of());
         assertThrows(NullPointerException.class, () -> p.metadataLong(null));
     }
+
+    @Test
+    void metadataRejectsNullName() {
+        PacketIn p = build(Map.of("ingress_port", Bytes.ofInt(3)));
+        NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> p.metadata((String) null));
+        assertEquals("name", ex.getMessage(),
+                "NPE message should be the rejected parameter name (per Objects.requireNonNull convention)");
+    }
 }

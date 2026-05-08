@@ -106,6 +106,16 @@ class TableEntryTest {
     }
 
     @Test
+    void matchAccessorRejectsNullFieldName() {
+        TableEntry e = TableEntry.in("t")
+                .match("k", 1).action("act").build();
+        NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> e.match(null));
+        assertEquals("fieldName", ex.getMessage(),
+                "NPE message should be the rejected parameter name (per Objects.requireNonNull convention)");
+    }
+
+    @Test
     void negativeIntAndLongMatchRejected() {
         IllegalArgumentException eInt = assertThrows(IllegalArgumentException.class,
                 () -> TableEntry.in("t").match("k", -1).action("act").build());

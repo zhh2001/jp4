@@ -58,4 +58,12 @@ class MastershipStatusTest {
         MastershipStatus s = new MastershipStatus.Acquired(withHigh);
         assertEquals("Acquired(primary=18446744073709551616)", s.toString());
     }
+
+    @Test
+    void acquiredRejectsNullElectionId() {
+        NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> new MastershipStatus.Acquired(null));
+        assertEquals("ourElectionId", ex.getMessage(),
+                "NPE message should be the rejected parameter name (per Objects.requireNonNull convention)");
+    }
 }

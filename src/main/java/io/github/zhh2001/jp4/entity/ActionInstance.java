@@ -46,8 +46,14 @@ public final class ActionInstance {
      * has no such parameter on this instance. Use this to query an entry read back
      * from the device; entries built via the user-facing chain expose params() if
      * iteration is needed.
+     *
+     * @param paramName the parameter name as declared in P4Info
+     * @return the parameter value as raw {@link Bytes}, or {@code null} if the
+     *         action has no such parameter on this instance
+     * @throws NullPointerException if {@code paramName} is null
      */
     public Bytes param(String paramName) {
+        Objects.requireNonNull(paramName, "paramName");
         return params.get(paramName);
     }
 
