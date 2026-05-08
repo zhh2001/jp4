@@ -1,6 +1,7 @@
 package io.github.zhh2001.jp4.pipeline;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -32,12 +33,23 @@ public sealed interface DeviceConfig permits DeviceConfig.Bmv2, DeviceConfig.Raw
             json = json.clone();
         }
 
+        /**
+         * Loads a BMv2 JSON config from disk. The file at {@code jsonPath} is read
+         * in full; large multi-megabyte device configs are kept in memory by the
+         * returned {@code Bmv2} value.
+         *
+         * @param jsonPath path to the BMv2 JSON file (typically the
+         *                 {@code .json} output of {@code p4c --target bmv2})
+         * @return a {@code Bmv2} wrapping the file's bytes
+         * @throws UncheckedIOException if the file cannot be read; the underlying
+         *         {@link IOException} is preserved as the cause
+         */
         public static Bmv2 fromFile(Path jsonPath) {
             Objects.requireNonNull(jsonPath, "jsonPath");
             try {
                 return new Bmv2(Files.readAllBytes(jsonPath));
             } catch (IOException e) {
-                throw new RuntimeException("Failed to read BMv2 JSON from " + jsonPath, e);
+                throw new UncheckedIOException("Failed to read BMv2 JSON from " + jsonPath, e);
             }
         }
 
@@ -95,12 +107,21 @@ public sealed interface DeviceConfig permits DeviceConfig.Bmv2, DeviceConfig.Raw
             bytes = bytes.clone();
         }
 
+        /**
+         * Loads a target-specific device config from disk. The file at {@code path}
+         * is read in full and passed to the device verbatim.
+         *
+         * @param path path to the device config file
+         * @return a {@code Raw} wrapping the file's bytes
+         * @throws UncheckedIOException if the file cannot be read; the underlying
+         *         {@link IOException} is preserved as the cause
+         */
         public static Raw fromFile(Path path) {
             Objects.requireNonNull(path, "path");
             try {
                 return new Raw(Files.readAllBytes(path));
             } catch (IOException e) {
-                throw new RuntimeException("Failed to read device config from " + path, e);
+                throw new UncheckedIOException("Failed to read device config from " + path, e);
             }
         }
 

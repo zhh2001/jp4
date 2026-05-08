@@ -96,7 +96,12 @@ class ActionInstanceTest {
     @Test
     void paramLongRejectsAbsent() {
         ActionInstance a = build(Map.of());
-        assertThrows(IllegalStateException.class, () -> a.paramLong("port"));
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> a.paramLong("port"));
+        assertTrue(ex.getMessage().contains("ActionInstance has no parameter 'port'"),
+                "absent message should name the parameter");
+        assertTrue(ex.getMessage().contains("known"),
+                "absent message should expose known-parameter list");
     }
 
     @Test

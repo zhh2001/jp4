@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -100,5 +101,29 @@ class DeviceConfigTest {
         DeviceConfig.Raw cfg = DeviceConfig.Raw.fromBytes(src);
         src[0] = 99;
         assertArrayEquals(new byte[]{1, 2, 3}, cfg.bytes());
+    }
+
+    @Test
+    void bmv2FromFileWrapsIoExceptionAsUnchecked(@TempDir Path tmp) {
+        Path missing = tmp.resolve("does-not-exist.json");
+        UncheckedIOException ex = assertThrows(UncheckedIOException.class,
+                () -> DeviceConfig.Bmv2.fromFile(missing));
+        assertNotNull(ex.getCause(), "cause must be set so callers can recover the IOException");
+        assertTrue(ex.getCause() instanceof IOException,
+                "cause must be the original IOException, was " + ex.getCause().getClass());
+        assertTrue(ex.getMessage().contains("Failed to read BMv2 JSON"),
+                "message should preserve the original error context, was: " + ex.getMessage());
+    }
+
+    @Test
+    void rawFromFileWrapsIoExceptionAsUnchecked(@TempDir Path tmp) {
+        Path missing = tmp.resolve("does-not-exist.bin");
+        UncheckedIOException ex = assertThrows(UncheckedIOException.class,
+                () -> DeviceConfig.Raw.fromFile(missing));
+        assertNotNull(ex.getCause(), "cause must be set so callers can recover the IOException");
+        assertTrue(ex.getCause() instanceof IOException,
+                "cause must be the original IOException, was " + ex.getCause().getClass());
+        assertTrue(ex.getMessage().contains("Failed to read device config"),
+                "message should preserve the original error context, was: " + ex.getMessage());
     }
 }

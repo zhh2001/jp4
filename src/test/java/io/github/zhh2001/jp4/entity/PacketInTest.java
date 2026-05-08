@@ -91,7 +91,12 @@ class PacketInTest {
     @Test
     void metadataLongRejectsAbsent() {
         PacketIn p = build(Map.of());
-        assertThrows(IllegalStateException.class, () -> p.metadataLong("trace_id"));
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> p.metadataLong("trace_id"));
+        assertTrue(ex.getMessage().contains("PacketIn has no metadata field 'trace_id'"),
+                "absent message should name the field");
+        assertTrue(ex.getMessage().contains("known"),
+                "absent message should expose known-field list");
     }
 
     @Test
