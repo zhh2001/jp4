@@ -8,12 +8,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 (future v1.x work tracked in the Roadmap section)
 
-## [1.0.0] — YYYY-MM-DD
-
-<!-- Maintainer: replace YYYY-MM-DD with the date `./gradlew publishToMavenCentral`
-     runs and the deployment is clicked Publish at central.sonatype.com. The
-     Maven-Central indexing lag (~10-30 min) means the Portal-click date is the
-     truthful "released" date for this header. Do not backdate. -->
+## [1.0.0] — 2026-05-08
 
 v1.0 locks the public API surface; the surface is stable across v1.x
 patches. See [`docs/migration-0.1-to-1.0.md`](docs/migration-0.1-to-1.0.md)
