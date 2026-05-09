@@ -6,7 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-(future v1.x work tracked in the Roadmap section)
+### Added
+
+- **`Mac.ZERO`** — public `static final Mac` constant for the all-zero
+  MAC address (`00:00:00:00:00:00`), useful as a sentinel for invalid
+  or default-initialised source addresses (e.g., to filter out stray
+  uninitialised Ethernet frames that some test interfaces carry
+  alongside controller-injected traffic).
 
 ## [1.0.0] — 2026-05-08
 
@@ -187,7 +193,11 @@ These are tracked for v1.x point releases without committed dates:
   distinctive lines from each example's stdout. v1.x should diff the
   full captured output against each example's README "Expected
   output" block, so docs-vs-actual mismatches fail CI rather than
-  waiting for a manual review pass.
+  waiting for a manual review pass. Reliable byte-identical diff
+  requires a `Connector`-level packet-ingestion control surface (so
+  unrelated kernel traffic on the BMv2 ingress interface cannot leak
+  into the example output via the unbounded fan-out path); design
+  TBD, held for a future v1.x release.
 
 [Unreleased]: https://github.com/zhh2001/jp4/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/zhh2001/jp4/releases/tag/v1.0.0

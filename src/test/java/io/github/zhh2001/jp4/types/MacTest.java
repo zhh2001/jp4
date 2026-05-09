@@ -93,4 +93,15 @@ class MacTest {
         src[0] = 0;
         assertEquals(Mac.of("de:ad:be:ef:00:01"), m);
     }
+
+    @Test
+    void zeroIsAllZeroOctets() {
+        assertEquals(Mac.of("00:00:00:00:00:00"), Mac.ZERO);
+        assertEquals(Mac.fromBytes(new byte[6]), Mac.ZERO);
+    }
+
+    @Test
+    void zeroToStringIsCanonicalAllZeros() {
+        assertEquals("00:00:00:00:00:00", Mac.ZERO.toString());
+    }
 }

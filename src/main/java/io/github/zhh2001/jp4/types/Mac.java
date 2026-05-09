@@ -17,6 +17,16 @@ public record Mac(byte[] octets) {
 
     private static final HexFormat HEX = HexFormat.of();
 
+    /**
+     * The all-zero MAC address ({@code 00:00:00:00:00:00}). Useful as a sentinel
+     * for invalid or default-initialised source addresses — e.g. to filter out
+     * stray uninitialised Ethernet frames that some test interfaces (loopback,
+     * tap) carry alongside controller-injected traffic.
+     *
+     * @since 1.1.0
+     */
+    public static final Mac ZERO = new Mac(new byte[6]);
+
     public Mac {
         Objects.requireNonNull(octets, "octets");
         if (octets.length != 6) {
