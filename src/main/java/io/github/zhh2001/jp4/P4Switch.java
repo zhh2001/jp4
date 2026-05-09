@@ -131,6 +131,24 @@ public final class P4Switch implements AutoCloseable {
     private final AtomicBoolean broken = new AtomicBoolean(false);
     private final AtomicBoolean closing = new AtomicBoolean(false);
 
+    /** True iff the original {@code Connector} terminal was {@code .asPrimary()}.
+     *  Captured at construction so the reconnect path can compare the post-reconnect
+     *  role against the originally requested role. */
+    private final boolean originallyRequestedPrimary;
+
+    /** Mirror of {@code Connector.preserveRoleOnReconnect()} captured at construction.
+     *  When true and the original connect requested Primary, a reconnect that yields
+     *  non-Primary stores the resulting {@link P4ArbitrationLost} into
+     *  {@code closeReason} and closes the switch. */
+    private final boolean preserveRoleOnReconnect;
+
+    /** Set by the fail-fast path in {@link #attemptReconnect()} when reconnect
+     *  yields a non-Primary role under {@code preserveRoleOnReconnect}. The
+     *  writability and readability gates throw this in preference to the generic
+     *  {@code "switch is closed"} {@link P4ConnectionException} so the application
+     *  sees the specific reason. {@code null} until that path triggers. */
+    private volatile P4ArbitrationLost closeReason;
+
     private volatile Consumer<MastershipStatus> listener;
     private final AtomicReference<ScheduledFuture<?>> nextReconnect = new AtomicReference<>();
     private final AtomicLong reconnectAttempt = new AtomicLong(0L);
@@ -160,7 +178,9 @@ public final class P4Switch implements AutoCloseable {
              Thread outboundThread,
              Thread callbackThread,
              StreamSession initialSession,
-             MastershipStatus initialMastership) {
+             MastershipStatus initialMastership,
+             boolean originallyRequestedPrimary,
+             boolean preserveRoleOnReconnect) {
         this.address = address;
         this.deviceId = deviceId;
         this.electionId = electionId;
@@ -173,6 +193,8 @@ public final class P4Switch implements AutoCloseable {
         this.session.set(initialSession);
         this.currentGeneration.set(initialSession.generation);
         this.mastership.set(initialMastership);
+        this.originallyRequestedPrimary = originallyRequestedPrimary;
+        this.preserveRoleOnReconnect = preserveRoleOnReconnect;
         // Subscriber callbacks share callbackExecutor with onPacketIn / onMastershipChange,
         // preserving the FIFO single-thread contract. Buffer per subscriber matches the
         // poll-deque capacity for symmetry.
@@ -211,7 +233,7 @@ public final class P4Switch implements AutoCloseable {
      * recovery and the user observes it via {@link #onMastershipChange}.
      */
     public synchronized P4Switch asPrimary() {
-        if (closing.get()) throw new P4ConnectionException("switch is closed");
+        if (closing.get()) throw closedException();
         if (broken.get()) {
             throw new P4ConnectionException(
                     "stream is broken; reconnect happens automatically when a ReconnectPolicy is configured");
@@ -364,7 +386,7 @@ public final class P4Switch implements AutoCloseable {
      * @throws P4PipelineException   on RPC failure or empty pipeline
      */
     public P4Switch loadPipeline() {
-        if (closing.get()) throw new P4ConnectionException("switch is closed");
+        if (closing.get()) throw closedException();
         if (broken.get()) throw new P4ConnectionException("stream is broken");
         StreamSession sess = session.get();
         if (sess == null) throw new P4ConnectionException("no active session");
@@ -884,6 +906,33 @@ public final class P4Switch implements AutoCloseable {
                 return;
             }
 
+            // Fail-fast on reconnect role downgrade: if the user opted in via
+            // Connector.preserveRoleOnReconnect(true) and originally connected
+            // .asPrimary(), but the device assigned a non-Primary role on this
+            // reconnect (because another client arbitrated higher during the
+            // disconnect window), abort the swap, store the cause as the
+            // close-reason, and dispatch the Lost event so the listener still
+            // observes the role transition. Subsequent user calls go through
+            // requireWritable / requireReadable and throw the stored cause.
+            if (preserveRoleOnReconnect && originallyRequestedPrimary && initial.isLost()) {
+                ElectionId currentPrimary =
+                        ((MastershipStatus.Lost) initial).currentPrimaryElectionId();
+                closeReason = new P4ArbitrationLost(
+                        "primary role not preserved on reconnect: device " + deviceId
+                                + " at " + address + " assigned non-Primary",
+                        electionId, currentPrimary);
+                closing.set(true);
+                // Cancel any further scheduled reconnect attempts.
+                ScheduledFuture<?> pending = nextReconnect.getAndSet(null);
+                if (pending != null) pending.cancel(false);
+                // Dispatch LOST so onMastershipChange fires symmetrically with the
+                // non-fail-fast path; listener is allowed to inspect the closed switch.
+                dispatchMastership(initial);
+                // Tear down the just-built session — it never becomes authoritative.
+                newSession.shutdownGracefully();
+                return;
+            }
+
             // Swap atomically: install new session, advance generation, attach handler.
             StreamSession oldSession = session.getAndSet(newSession);
             currentGeneration.set(newGen);
@@ -937,7 +986,7 @@ public final class P4Switch implements AutoCloseable {
     }
 
     private P4ConnectionException writabilityException() {
-        if (closing.get()) return new P4ConnectionException("switch is closed");
+        if (closing.get()) return closedException();
         if (broken.get()) return new P4ConnectionException("stream is broken");
         if (!isPrimary()) {
             return new P4ConnectionException(
@@ -953,9 +1002,20 @@ public final class P4Switch implements AutoCloseable {
      * broken switches — mastership is irrelevant.
      */
     private P4ConnectionException readabilityException() {
-        if (closing.get()) return new P4ConnectionException("switch is closed");
+        if (closing.get()) return closedException();
         if (broken.get()) return new P4ConnectionException("stream is broken");
         return null;
+    }
+
+    /**
+     * Builds the exception thrown when the switch is closed. Returns the stored
+     * {@link #closeReason} (currently set only by the {@code preserveRoleOnReconnect}
+     * fail-fast path) when present, falling back to the generic
+     * {@code "switch is closed"} {@link P4ConnectionException} otherwise.
+     */
+    private P4ConnectionException closedException() {
+        P4ArbitrationLost cause = closeReason;
+        return cause != null ? cause : new P4ConnectionException("switch is closed");
     }
 
     /**

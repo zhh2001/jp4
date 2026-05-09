@@ -45,6 +45,7 @@ public final class Connector {
     private ElectionId electionId = ElectionId.of(1L);
     private ReconnectPolicy reconnectPolicy = ReconnectPolicy.noRetry();
     private int packetInQueueSize = 1024;
+    private boolean preserveRoleOnReconnect = false;
 
     Connector(String address) {
         this.address = Objects.requireNonNull(address, "address");
@@ -78,14 +79,61 @@ public final class Connector {
         return this;
     }
 
+    /**
+     * Configures the switch to fail fast if its mastership role on auto-reconnect
+     * differs from the role originally requested via {@link #asPrimary()}. When
+     * enabled and the device assigns a non-Primary role on reconnect (because
+     * another client arbitrated with a higher election id during the disconnect
+     * window), the switch closes itself and stores the resulting
+     * {@link io.github.zhh2001.jp4.error.P4ArbitrationLost} as the close cause;
+     * subsequent calls on the switch (write / read / send / etc.) throw that
+     * stored exception via the existing writability and readability gates,
+     * carrying both the original election id and the device's new primary
+     * election id so the application can retry with a higher id.
+     *
+     * <p>Default: {@code false}. The unchanged behaviour is to keep the switch
+     * open as Secondary and emit a {@code MastershipStatus.Lost} callback only;
+     * subsequent writes fail one by one against the writability gate. The flag
+     * is a no-op for connectors that started as {@link #asSecondary()}, since a
+     * post-reconnect Primary is the user yielding intentionally rather than a
+     * downgrade.
+     *
+     * <p>Recovery pattern in primary-mandatory applications:
+     *
+     * <pre>{@code
+     * try (P4Switch sw = P4Switch.connect(addr)
+     *         .electionId(myEid)
+     *         .reconnectPolicy(...)
+     *         .preserveRoleOnReconnect(true)
+     *         .asPrimary()) {
+     *     ...
+     * } catch (P4ArbitrationLost ex) {
+     *     ElectionId higher = ElectionId.of(
+     *             ex.currentPrimaryElectionId().low() + 1);
+     *     // reconnect with the higher id, retry application work
+     * }
+     * }</pre>
+     *
+     * @param enable {@code true} to opt into fail-fast on reconnect role
+     *               downgrade; {@code false} for the v1.0 silent-Secondary
+     *               behaviour
+     * @return this builder, for chaining
+     * @since 1.1.0
+     */
+    public Connector preserveRoleOnReconnect(boolean enable) {
+        this.preserveRoleOnReconnect = enable;
+        return this;
+    }
+
     public P4Switch asPrimary()   { return open(/*requirePrimary=*/ true); }
     public P4Switch asSecondary() { return open(/*requirePrimary=*/ false); }
 
-    String address()                  { return address; }
-    long deviceId()                   { return deviceId; }
-    ElectionId electionId()           { return electionId; }
-    ReconnectPolicy reconnectPolicy() { return reconnectPolicy; }
-    int packetInQueueSize()           { return packetInQueueSize; }
+    String address()                   { return address; }
+    long deviceId()                    { return deviceId; }
+    ElectionId electionId()            { return electionId; }
+    ReconnectPolicy reconnectPolicy()  { return reconnectPolicy; }
+    int packetInQueueSize()            { return packetInQueueSize; }
+    boolean preserveRoleOnReconnect()  { return preserveRoleOnReconnect; }
 
     // ---------- internal -----------------------------------------------------
 
@@ -178,7 +226,8 @@ public final class Connector {
                 address, deviceId, electionId, reconnectPolicy,
                 outboundExec, callbackExec, reconnectExec,
                 outboundThreadRef[0], callbackThreadRef[0],
-                initialSession, initial);
+                initialSession, initial,
+                requirePrimary, preserveRoleOnReconnect);
         handler.attach(sw);
         return sw;
     }

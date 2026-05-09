@@ -3,6 +3,7 @@ package io.github.zhh2001.jp4.integration;
 import io.github.zhh2001.jp4.MastershipStatus;
 import io.github.zhh2001.jp4.P4Switch;
 import io.github.zhh2001.jp4.ReconnectPolicy;
+import io.github.zhh2001.jp4.error.P4ArbitrationLost;
 import io.github.zhh2001.jp4.error.P4ConnectionException;
 import io.github.zhh2001.jp4.testsupport.BMv2TestSupport;
 import io.github.zhh2001.jp4.types.ElectionId;
@@ -174,6 +175,148 @@ class ReconnectTest {
                         "close() must release regardless of which reconnect-attempt phase is in flight");
             } finally {
                 sw.close();
+            }
+        }
+    }
+
+    // ---------- preserveRoleOnReconnect — added in 1.1.0 ----------
+
+    /** Default behaviour (preserveRoleOnReconnect not set): a reconnect that yields
+     *  Secondary because another client claimed primary in the disconnect window
+     *  silently downgrades the switch — Lost callback fires, switch stays open,
+     *  no exception is thrown. This is the v1.0 baseline. */
+    @Test
+    void reconnectWithoutPreserveRoleSilentlyDowngradesWhenAnotherClientStealsPrimary() throws Exception {
+        try (BMv2TestSupport bmv2 = new BMv2TestSupport("reconnectNoPreserve").start()) {
+            ElectionId myEid = ElectionId.of(42L);
+            ElectionId stealerEid = ElectionId.of(100L);
+            List<MastershipStatus> events = new CopyOnWriteArrayList<>();
+
+            try (P4Switch sw = P4Switch.connect(bmv2.grpcAddress())
+                    .electionId(myEid)
+                    .reconnectPolicy(ReconnectPolicy.exponentialBackoff(
+                            Duration.ofSeconds(1), Duration.ofSeconds(2), 20))
+                    .asPrimary()) {
+                sw.onMastershipChange(events::add);
+                assertTrue(sw.isPrimary());
+
+                bmv2.killForciblyNow();
+                bmv2.restart();
+
+                // Stealer client claims primary on the freshly-restarted BMv2 with a
+                // higher election id — wins the arbitration before the original
+                // client's reconnect timer fires.
+                try (P4Switch stealer = P4Switch.connect(bmv2.grpcAddress())
+                        .electionId(stealerEid)
+                        .asPrimary()) {
+                    assertTrue(stealer.isPrimary(),
+                            "stealer must be primary on the restarted BMv2");
+
+                    // Wait for original sw to: (1) emit Lost from stream-break,
+                    // (2) reconnect and emit a second event reflecting the new role.
+                    await().atMost(Duration.ofSeconds(20))
+                            .pollInterval(Duration.ofMillis(50))
+                            .until(() -> events.size() >= 2);
+
+                    assertFalse(sw.isPrimary(),
+                            "sw must NOT be primary after stealer claims it");
+                    // Default-false path: switch is still alive — calling asPrimary()
+                    // attempts re-arbitration rather than throwing closedException().
+                    // The stored close-reason is null; calls do not surface
+                    // P4ArbitrationLost from the closed gate.
+                }
+            }
+        }
+    }
+
+    /** Fail-fast path: with preserveRoleOnReconnect(true) on an .asPrimary()
+     *  connector, a reconnect that yields Secondary closes the switch and stores
+     *  P4ArbitrationLost as the close cause; subsequent calls throw that cause via
+     *  the standard writability / readability gates, carrying our election id and
+     *  the device's current primary election id. */
+    @Test
+    void reconnectWithPreserveRoleAndPrimaryStolenThrowsArbitrationLost() throws Exception {
+        try (BMv2TestSupport bmv2 = new BMv2TestSupport("reconnectPreserveStolen").start()) {
+            ElectionId myEid = ElectionId.of(42L);
+            ElectionId stealerEid = ElectionId.of(100L);
+            List<MastershipStatus> events = new CopyOnWriteArrayList<>();
+
+            try (P4Switch sw = P4Switch.connect(bmv2.grpcAddress())
+                    .electionId(myEid)
+                    .reconnectPolicy(ReconnectPolicy.exponentialBackoff(
+                            Duration.ofSeconds(1), Duration.ofSeconds(2), 20))
+                    .preserveRoleOnReconnect(true)
+                    .asPrimary()) {
+                sw.onMastershipChange(events::add);
+                assertTrue(sw.isPrimary());
+
+                bmv2.killForciblyNow();
+                bmv2.restart();
+
+                try (P4Switch stealer = P4Switch.connect(bmv2.grpcAddress())
+                        .electionId(stealerEid)
+                        .asPrimary()) {
+                    assertTrue(stealer.isPrimary(),
+                            "stealer must be primary on the restarted BMv2");
+
+                    // Wait for sw to emit Lost from the stream-break, then a second
+                    // Lost from the fail-fast path on the reconnect role downgrade.
+                    await().atMost(Duration.ofSeconds(20))
+                            .pollInterval(Duration.ofMillis(50))
+                            .until(() -> events.size() >= 2);
+
+                    // The fail-fast path stored a P4ArbitrationLost as the close
+                    // cause; asPrimary() routes through the closed gate and
+                    // throws that cause.
+                    P4ArbitrationLost ex = assertThrows(P4ArbitrationLost.class, sw::asPrimary,
+                            "subsequent user calls must throw the stored P4ArbitrationLost");
+                    assertEquals(myEid, ex.ourElectionId(),
+                            "ourElectionId must reflect this client's id");
+                    assertEquals(stealerEid, ex.currentPrimaryElectionId(),
+                            "currentPrimaryElectionId must reflect the stealer's id");
+                    assertTrue(ex.getMessage().contains("not preserved"),
+                            "message must surface the reconnect role-loss cause; was: "
+                                    + ex.getMessage());
+                }
+            }
+        }
+    }
+
+    /** preserveRoleOnReconnect(true) is non-disruptive when reconnect actually
+     *  yields Primary again: the standard Lost → Acquired callback sequence fires
+     *  and the switch stays open, indistinguishable from the v1.0 path. */
+    @Test
+    void reconnectWithPreserveRoleAndPrimaryRetainedSucceedsAsBeforeV1() throws Exception {
+        try (BMv2TestSupport bmv2 = new BMv2TestSupport("reconnectPreserveOK").start()) {
+            ElectionId myEid = ElectionId.of(42L);
+            List<MastershipStatus> events = new CopyOnWriteArrayList<>();
+
+            try (P4Switch sw = P4Switch.connect(bmv2.grpcAddress())
+                    .electionId(myEid)
+                    .reconnectPolicy(ReconnectPolicy.exponentialBackoff(
+                            Duration.ofMillis(100), Duration.ofMillis(500), 20))
+                    .preserveRoleOnReconnect(true)
+                    .asPrimary()) {
+                sw.onMastershipChange(events::add);
+                assertTrue(sw.isPrimary());
+
+                bmv2.killForciblyNow();
+                bmv2.restart();
+
+                await().atMost(Duration.ofSeconds(15))
+                        .pollInterval(Duration.ofMillis(50))
+                        .until(() -> events.size() >= 2);
+
+                assertInstanceOf(MastershipStatus.Lost.class, events.get(0),
+                        "first event must be Lost from the stream break");
+                assertInstanceOf(MastershipStatus.Acquired.class, events.get(1),
+                        "second event must be Acquired — primary regained, fail-fast not triggered");
+                assertEquals(myEid, ((MastershipStatus.Acquired) events.get(1)).ourElectionId(),
+                        "election id must persist across the reconnect");
+                await().atMost(Duration.ofSeconds(2)).until(sw::isPrimary);
+                // sw is fully usable; no P4ArbitrationLost stored.
+                assertDoesNotThrow(sw::asPrimary,
+                        "with primary retained, asPrimary must be a no-op success");
             }
         }
     }
