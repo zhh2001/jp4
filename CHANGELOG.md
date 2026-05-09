@@ -8,9 +8,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 (future v1.x work tracked in the Roadmap section)
 
-## [1.1.0] — YYYY-MM-DD
-
-<!-- date filled at release time -->
+## [1.1.0] — 2026-05-09
 
 v1.1 is a SemVer-minor addition over v1.0; the v1.0 public surface
 is unchanged. See [`docs/migration-1.0-to-1.1.md`](docs/migration-1.0-to-1.1.md)
