@@ -79,8 +79,15 @@ configured. For the Docker path you only need Docker.
   Subordinate paragraphs separated by blank lines.
 - **No phase numbers, no internal milestone references.** Same as
   code-comment style.
-- **No `Co-Authored-By` lines** unless the work was actually
-  collaborative.
+- **No AI-tool or bot attribution in commits.** Specifically rejected:
+  - `Co-Authored-By:` trailers naming AI tools or bots
+  - Footer banners citing automated assistance
+  - Bot emails (`noreply@*` patterns from AI services)
+  - Robot or AI-tool emoji
+
+  Commit messages should read like a human engineer wrote them.
+  `Co-Authored-By:` lines are reserved for actual human collaborators
+  who contributed to the change.
 
 If your PR fixes a runtime quirk you discovered (BMv2 / target /
 JVM behaviour), add a corresponding entry to `NOTES.md` in the same
