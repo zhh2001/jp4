@@ -6,13 +6,57 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+(future v1.x work tracked in the Roadmap section)
+
+## [1.1.0] — YYYY-MM-DD
+
+<!-- date filled at release time -->
+
+v1.1 is a SemVer-minor addition over v1.0; the v1.0 public surface
+is unchanged. See [`docs/migration-1.0-to-1.1.md`](docs/migration-1.0-to-1.1.md)
+for usage examples of each new method.
+
 ### Added
 
-- **`Mac.ZERO`** — public `static final Mac` constant for the all-zero
-  MAC address (`00:00:00:00:00:00`), useful as a sentinel for invalid
-  or default-initialised source addresses (e.g., to filter out stray
-  uninitialised Ethernet frames that some test interfaces carry
-  alongside controller-injected traffic).
+- **`ReadQuery.where(Predicate<? super TableEntry>)`** (commit
+  `6277b18`) — client-side filtering on the read result. Each call
+  appends a predicate; entries that fail any predicate are excluded
+  from the terminal call (`.all()` / `.one()` / `.stream()` and async
+  variants). The method is a default on the `ReadQuery` interface
+  that throws `UnsupportedOperationException`, naming `1.1.0` and
+  directing the caller to update; the built-in implementation
+  returned by `P4Switch.read(...)` overrides it. SemVer-safe for any
+  external implementer of `ReadQuery`.
+- **`Connector.preserveRoleOnReconnect(boolean)`** (commit
+  `53e4e8e`) — opts a `.asPrimary()` connector into fail-fast on
+  reconnect role downgrade. When enabled and a reconnect yields a
+  non-Primary role (because another client arbitrated higher during
+  the disconnect window), the switch closes itself and stores the
+  resulting `P4ArbitrationLost` as the close cause; subsequent user
+  calls throw that cause via the existing writability and readability
+  gates instead of the generic `"switch is closed"`. Default `false`
+  preserves the v1.0 silent-Secondary behaviour.
+- **`Mac.ZERO`** (commit `d1bf319`) — public `static final Mac`
+  constant for the all-zero MAC address (`00:00:00:00:00:00`),
+  useful as a sentinel for invalid or default-initialised source
+  addresses.
+
+### Documentation
+
+- **AI-tool and bot attribution rules in `CONTRIBUTING.md`**
+  (commit `3fb8354`) — the commit-message section now enumerates the
+  rejected forms (AI-naming `Co-Authored-By:` trailers, footer
+  banners citing automated assistance, bot emails matching
+  `noreply@*`, robot or AI-tool emoji), and preserves the existing
+  carve-out for `Co-Authored-By:` lines naming real human
+  collaborators.
+- **Post-1.0 source-reference cleanup** (commit `fc70d0d`) — the
+  build version was bumped from `1.0.0` to `1.1.0-SNAPSHOT`,
+  opening the v1.1 development cycle, and 17 production / docs /
+  example references to `v0.1` and `v0.2` were updated to reflect
+  post-1.0 reality (descriptive comments naming `v0.1` ship-set
+  updated to `v1.0`; forward-looking `v0.2 will...` notes updated to
+  `v1.x will...`).
 
 ## [1.0.0] — 2026-05-08
 
@@ -177,13 +221,15 @@ These are tracked for v1.x point releases without committed dates:
   / parallelism / error-aggregation semantics).
 - Other entity-type reads — counters, meters, registers, action
   profiles, multicast groups, packet replication.
-- `ReadQuery.where(Predicate<TableEntry>)` and `ReadQuery.fields(...)`
-  for client-side filtering and projection.
-- `DeviceConfig.Tofino` variant alongside `Bmv2` and `Raw`.
+- `ReadQuery.fields(...)` for server-side or client-side projection;
+  the P4Runtime `ReadRequest` spec carries no projection field, so
+  this would be a client-side helper. Design TBD; held for a future
+  v1.x release.
+- `DeviceConfig.Tofino` variant alongside `Bmv2` and `Raw` —
+  community-driven; no internal commitment, contributions welcome
+  with hardware-validated test results.
 - `sw.onPacketDropped(Consumer<DropEvent>)` hook for backpressure
   observability.
-- `ReconnectPolicy.preserveRoleOnReconnect()` so primary clients
-  re-arbitrate automatically after an auto-reconnect.
 - Digest and IdleTimeout stream-message handlers (P4Runtime spec
   §7 / §11.4) — currently dropped at the inbound parser; v1.x will
   add typed subscription APIs matching the existing `onPacketIn` /
@@ -199,6 +245,7 @@ These are tracked for v1.x point releases without committed dates:
   into the example output via the unbounded fan-out path); design
   TBD, held for a future v1.x release.
 
-[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/zhh2001/jp4/releases/tag/v1.1.0
 [1.0.0]: https://github.com/zhh2001/jp4/releases/tag/v1.0.0
 [0.1.0]: https://github.com/zhh2001/jp4/releases/tag/v0.1.0

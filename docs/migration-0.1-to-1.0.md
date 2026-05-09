@@ -244,18 +244,21 @@ authoritative list; this is the current snapshot.
   compose `List<P4Switch>` themselves.
 - **Other entity-type reads** — counters, meters, registers, action
   profiles, multicast groups, packet replication.
-- **`ReadQuery.where(Predicate<TableEntry>)` / `.fields(...)`** —
-  arbitrary client-side filtering and projection.
-- **`DeviceConfig.Tofino`** variant alongside `Bmv2` and `Raw`.
+- **`ReadQuery.fields(...)`** — client-side projection on read
+  results. Design TBD; held for a future v1.x release.
+  (`ReadQuery.where(Predicate)` from the original v1.x roadmap entry
+  shipped in v1.1; see
+  [`migration-1.0-to-1.1.md`](migration-1.0-to-1.1.md).)
+- **`DeviceConfig.Tofino`** variant alongside `Bmv2` and `Raw` —
+  community-driven; no internal commitment, contributions welcome
+  with hardware-validated test results.
 - **`sw.onPacketDropped(Consumer<DropEvent>)` hook** for backpressure
   observability.
-- **`ReconnectPolicy.preserveRoleOnReconnect()`** for primary
-  re-arbitration after auto-reconnect.
 - **Digest and IdleTimeout stream-message handlers** (P4Runtime
   spec §7 / §11.4) — currently dropped at the inbound parser.
 - **Examples-CI full-output diff** — strengthen example assertions
   from grep-for-distinctive-lines to full-block diff against README
-  expected output.
+  expected output. Design TBD; held for a future v1.x release.
 
 Each item is tracked in the CHANGELOG; community input on priority
 is welcome via
