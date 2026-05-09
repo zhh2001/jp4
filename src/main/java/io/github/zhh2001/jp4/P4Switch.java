@@ -44,6 +44,7 @@ import java.util.OptionalLong;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Flow;
@@ -1252,6 +1253,7 @@ public final class P4Switch implements AutoCloseable {
         private final String tableName;
         private final Pipeline pipe;
         private final Map<String, Match> matches = new LinkedHashMap<>();
+        private final List<Predicate<? super TableEntry>> filters = new ArrayList<>();
 
         ReadQueryImpl(String tableName, Pipeline pipe) {
             this.tableName = tableName;
@@ -1264,6 +1266,21 @@ public final class P4Switch implements AutoCloseable {
             Objects.requireNonNull(match, "match");
             matches.put(fieldName, match);
             return this;
+        }
+
+        @Override
+        public ReadQuery where(Predicate<? super TableEntry> filter) {
+            Objects.requireNonNull(filter, "filter");
+            filters.add(filter);
+            return this;
+        }
+
+        /** Returns true iff every accumulated {@code .where(...)} filter accepts {@code e}. */
+        private boolean accept(TableEntry e) {
+            for (Predicate<? super TableEntry> p : filters) {
+                if (!p.test(e)) return false;
+            }
+            return true;
         }
 
         @Override
@@ -1362,7 +1379,17 @@ public final class P4Switch implements AutoCloseable {
                         while (it.hasNext()) {
                             extractInto(it.next(), entries);
                         }
-                        result.complete(entries);
+                        // Apply client-side .where(...) filters (no-op when filters is empty).
+                        List<TableEntry> filtered;
+                        if (filters.isEmpty()) {
+                            filtered = entries;
+                        } else {
+                            filtered = new ArrayList<>(entries.size());
+                            for (TableEntry e : entries) {
+                                if (accept(e)) filtered.add(e);
+                            }
+                        }
+                        result.complete(filtered);
                     } catch (StatusRuntimeException sre) {
                         result.completeExceptionally(mapReadFailure(sre));
                     } catch (RuntimeException re) {
@@ -1429,10 +1456,12 @@ public final class P4Switch implements AutoCloseable {
             }
 
             Iterator<TableEntry> entryIter = flatten(respIter, pipe.p4info());
-            return StreamSupport.stream(
+            Stream<TableEntry> base = StreamSupport.stream(
                     Spliterators.spliteratorUnknownSize(entryIter, Spliterator.ORDERED),
                     /* parallel */ false
             ).onClose(() -> ctx.cancel(null));
+            // Apply client-side .where(...) filters lazily (no-op when filters is empty).
+            return filters.isEmpty() ? base : base.filter(this::accept);
         }
 
         // ---------- helpers ------------------------------------------------

@@ -10,6 +10,7 @@ import io.github.zhh2001.jp4.types.Mac;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
@@ -21,9 +22,10 @@ import java.util.stream.Stream;
  * read on the server side where the kind permits, otherwise client-side filtering is
  * applied transparently.
  *
- * <p>v1.x will add {@code where(Predicate<TableEntry>)} for arbitrary client-side
- * filtering and {@code fields(...)} for projection. The signatures here are stable;
- * those extensions go on {@code ReadQuery}, not on {@code P4Switch}.
+ * <p>Added in 1.1.0: {@link #where(Predicate)} for arbitrary client-side
+ * filtering. Server-side field projection is not supported by the P4Runtime
+ * {@code ReadRequest} spec; a future release may add a client-side projection
+ * helper.
  *
  * <p>Threading model: terminal operations are dispatched on the switch's
  * outbound executor; results return to the calling thread.
@@ -37,10 +39,13 @@ import java.util.stream.Stream;
  *   <li>{@link #stream()} initiates the read on the outbound executor but
  *       consumes on the calling thread; multiple stream consumers are
  *       independent.</li>
- *   <li>A {@code ReadQuery} instance is itself immutable and safe to pass
- *       across threads; typical usage chains construction and terminal call
- *       on a single thread, but a query can be constructed once and dispatched
- *       on multiple threads independently.</li>
+ *   <li>A {@code ReadQuery} instance is a mutable builder; the typical usage
+ *       pattern chains a terminal call (such as {@link #all()}) on the same
+ *       thread that constructed the builder. Do not share an in-progress
+ *       builder across threads. Once a terminal call returns, the resulting
+ *       {@link List}, {@link Optional}, or {@link Stream} is a separate
+ *       value, safe to pass across threads per its own thread-safety
+ *       contract.</li>
  * </ul>
  *
  * @since 0.1.0
@@ -73,4 +78,29 @@ public interface ReadQuery {
 
     CompletableFuture<List<TableEntry>> allAsync();
     CompletableFuture<Optional<TableEntry>> oneAsync();
+
+    /**
+     * Adds a client-side filter that narrows the result of a subsequent terminal
+     * call ({@link #all()} / {@link #one()} / {@link #stream()} or their async
+     * variants). Each call to {@code where} appends a predicate; entries that
+     * fail any predicate are excluded from the result. Filters are applied in
+     * the order added, after the device's own server-side {@code match(...)}
+     * filtering has narrowed the read.
+     *
+     * <p>Default implementation throws {@link UnsupportedOperationException}; the
+     * built-in {@code ReadQuery} returned by
+     * {@link io.github.zhh2001.jp4.P4Switch#read(String) P4Switch.read} overrides
+     * this with a real implementation.
+     *
+     * @param filter the predicate to apply; entries where {@code filter.test(e)}
+     *               returns {@code false} are excluded
+     * @return this builder, for chaining
+     * @throws NullPointerException if {@code filter} is null
+     * @since 1.1.0
+     */
+    default ReadQuery where(Predicate<? super TableEntry> filter) {
+        throw new UnsupportedOperationException(
+                "ReadQuery implementation does not support .where(); "
+                        + "this is a 1.1.0 addition and requires an updated implementation.");
+    }
 }

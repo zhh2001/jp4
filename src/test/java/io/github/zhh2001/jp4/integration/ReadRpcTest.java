@@ -267,4 +267,118 @@ class ReadRpcTest {
         assertTrue(ex.getMessage().contains("Known fields:"),
                 "must list known fields; got: " + ex.getMessage());
     }
+
+    // ---------- .where(Predicate) — added in 1.1.0 ----------
+
+    /** A single .where(...) predicate narrows the device's full table read down to
+     *  matching entries on the client side. */
+    @Test
+    void whereFilterNarrowsResultsToAcceptedEntries() {
+        TableEntry e1 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A100E00), 24))
+                .action("MyIngress.forward").param("port", 1).build();
+        TableEntry e2 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A100F00), 24))
+                .action("MyIngress.forward").param("port", 2).build();
+        TableEntry e3 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101000), 24))
+                .action("MyIngress.forward").param("port", 3).build();
+        sw.batch().insert(e1).insert(e2).insert(e3).execute();
+        try {
+            // Filter to only the entry with action param port == 2.
+            List<TableEntry> got = sw.read("MyIngress.ipv4_lpm")
+                    .where(e -> e.action() != null
+                            && 2 == e.action().paramInt("port"))
+                    .all();
+            assertEquals(1, got.size(), "exactly one entry should pass the filter; got " + got);
+            assertEquals(2, got.get(0).action().paramInt("port"));
+        } finally {
+            sw.batch().delete(e1).delete(e2).delete(e3).execute();
+        }
+    }
+
+    /** Multiple .where(...) calls accumulate; an entry must satisfy every predicate
+     *  to be included (logical AND). */
+    @Test
+    void whereChainedFiltersAreANDCombined() {
+        TableEntry e1 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101100), 24))
+                .action("MyIngress.forward").param("port", 1).build();
+        TableEntry e2 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101200), 24))
+                .action("MyIngress.forward").param("port", 2).build();
+        TableEntry e3 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101300), 24))
+                .action("MyIngress.forward").param("port", 5).build();
+        sw.batch().insert(e1).insert(e2).insert(e3).execute();
+        try {
+            // First filter: port >= 2 (matches e2, e3). Second filter: port < 5
+            // (matches e1, e2). Combined AND: only e2.
+            List<TableEntry> got = sw.read("MyIngress.ipv4_lpm")
+                    .where(e -> e.action() != null && e.action().paramInt("port") >= 2)
+                    .where(e -> e.action() != null && e.action().paramInt("port") < 5)
+                    .all();
+            assertEquals(1, got.size(), "AND of the two predicates should keep one entry; got " + got);
+            assertEquals(2, got.get(0).action().paramInt("port"));
+        } finally {
+            sw.batch().delete(e1).delete(e2).delete(e3).execute();
+        }
+    }
+
+    /** .match(...) (server-side narrowing) and .where(...) (client-side filtering)
+     *  compose: the server returns the .match-narrowed set, then .where filters it. */
+    @Test
+    void whereCombinedWithMatchAppliesBothFilters() {
+        TableEntry e1 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101400), 24))
+                .action("MyIngress.forward").param("port", 7).build();
+        TableEntry e2 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101500), 24))
+                .action("MyIngress.forward").param("port", 8).build();
+        sw.batch().insert(e1).insert(e2).execute();
+        try {
+            // Server-side narrow to one entry by exact match key, then client-side
+            // .where checks that the entry's port is 7.
+            List<TableEntry> got = sw.read("MyIngress.ipv4_lpm")
+                    .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101400), 24))
+                    .where(e -> e.action() != null && 7 == e.action().paramInt("port"))
+                    .all();
+            assertEquals(1, got.size(), "server-side match + client-side where should keep one; got " + got);
+            assertEquals(7, got.get(0).action().paramInt("port"));
+        } finally {
+            sw.batch().delete(e1).delete(e2).execute();
+        }
+    }
+
+    /** .where(null) rejects null per the project-wide null-rejection convention. */
+    @Test
+    void whereRejectsNullPredicate() {
+        NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> sw.read("MyIngress.ipv4_lpm").where(null));
+        assertEquals("filter", ex.getMessage(),
+                "NPE message should be the rejected parameter name (per Objects.requireNonNull convention)");
+    }
+
+    /** .stream() applies any accumulated .where(...) filter lazily. */
+    @Test
+    void streamAppliesWhereFilter() {
+        TableEntry e1 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101600), 24))
+                .action("MyIngress.forward").param("port", 1).build();
+        TableEntry e2 = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new Match.Lpm(Bytes.ofInt(0x0A101700), 24))
+                .action("MyIngress.forward").param("port", 2).build();
+        sw.batch().insert(e1).insert(e2).execute();
+        try {
+            try (Stream<TableEntry> s = sw.read("MyIngress.ipv4_lpm")
+                    .where(e -> e.action() != null && 2 == e.action().paramInt("port"))
+                    .stream()) {
+                List<TableEntry> got = s.toList();
+                assertEquals(1, got.size(), "stream should yield only port==2; got " + got);
+                assertEquals(2, got.get(0).action().paramInt("port"));
+            }
+        } finally {
+            sw.batch().delete(e1).delete(e2).execute();
+        }
+    }
 }
