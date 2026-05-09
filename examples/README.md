@@ -1,6 +1,6 @@
 # jp4 examples
 
-Three runnable examples that exercise the jp4 v0.1 API against a real BMv2
+Three runnable examples that exercise the jp4 v1.0 API against a real BMv2
 device. Each example is its own Gradle module under this directory; they
 consume the in-tree jp4 main artifact via a [composite
 build](https://docs.gradle.org/current/userguide/composite_builds.html), so

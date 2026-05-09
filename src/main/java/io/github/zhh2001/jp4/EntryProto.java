@@ -123,8 +123,8 @@ final class EntryProto {
      * <p>Tables that are part of an action profile / selector return wire entries whose
      * {@code TableAction} carries an {@code action_profile_member_id} or
      * {@code action_profile_group_id} instead of an inline {@code Action} — these are
-     * v0.2 work and surface as {@link P4PipelineException} with a descriptive message.
-     * The v0.1 read RPC reads direct-action tables only.
+     * v1.x work and surface as {@link P4PipelineException} with a descriptive message.
+     * The v1.0 read RPC reads direct-action tables only.
      */
     static TableEntry fromProto(p4.v1.P4RuntimeOuterClass.TableEntry proto, P4Info p4info) {
         TableInfo table = p4info.tableInfoById(proto.getTableId());
@@ -209,7 +209,7 @@ final class EntryProto {
                     throw new P4PipelineException(
                             "device returned an action-profile entry for table '" + tableName
                                     + "' (" + tableAction.getTypeCase()
-                                    + "); action profile / selector reads are v0.2 work");
+                                    + "); action profile / selector reads are v1.x work");
             case TYPE_NOT_SET -> throw new P4PipelineException(
                     "device returned TableAction with no type set for table '" + tableName + "'");
         }

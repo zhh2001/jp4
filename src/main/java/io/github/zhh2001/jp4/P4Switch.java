@@ -1479,7 +1479,7 @@ public final class P4Switch implements AutoCloseable {
                     out.add(EntryProto.fromProto(e.getTableEntry(), pipe.p4info()));
                 }
                 // Other entity types (counter / meter / action_profile_member /
-                // packet_replication / etc.) are v0.2 work — silently skipped here.
+                // packet_replication / etc.) are v1.x work — silently skipped here.
             }
         }
 

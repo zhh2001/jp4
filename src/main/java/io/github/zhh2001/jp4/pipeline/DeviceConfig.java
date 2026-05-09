@@ -10,8 +10,8 @@ import java.util.Objects;
 /**
  * Target-specific binary device configuration shipped alongside a P4Info to
  * {@code SetForwardingPipelineConfig}. The sealed hierarchy expresses the supported
- * targets at compile time; v0.1 ships {@code Bmv2} and {@code Raw}. Tofino support is
- * planned for v0.2 — until then, encode Tofino contexts manually and pass via
+ * targets at compile time; v1.0 ships {@code Bmv2} and {@code Raw}. Tofino support is
+ * planned for v1.x — until then, encode Tofino contexts manually and pass via
  * {@link Raw}.
  *
  * <p>Both variants are immutable records, safe to share across threads. The

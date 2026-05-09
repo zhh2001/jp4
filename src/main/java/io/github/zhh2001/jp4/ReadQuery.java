@@ -21,7 +21,7 @@ import java.util.stream.Stream;
  * read on the server side where the kind permits, otherwise client-side filtering is
  * applied transparently.
  *
- * <p>v0.2 will add {@code where(Predicate<TableEntry>)} for arbitrary client-side
+ * <p>v1.x will add {@code where(Predicate<TableEntry>)} for arbitrary client-side
  * filtering and {@code fields(...)} for projection. The signatures here are stable;
  * those extensions go on {@code ReadQuery}, not on {@code P4Switch}.
  *

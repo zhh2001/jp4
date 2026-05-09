@@ -18,13 +18,13 @@ protobuf-java jars, which Gradle pulls on the first build.
 
 ## Add jp4 to your project
 
-jp4 is published as `io.github.zhh2001:jp4` on Maven Central from v0.1.0.
+jp4 is published as `io.github.zhh2001:jp4` on Maven Central.
 Add it to your build:
 
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("io.github.zhh2001:jp4:0.1.0")
+    implementation("io.github.zhh2001:jp4:1.0.0")
 }
 ```
 

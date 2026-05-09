@@ -28,8 +28,8 @@
  *       uses these to encode {@code PacketOut} and decode {@code PacketIn}.</li>
  *   <li>{@link io.github.zhh2001.jp4.pipeline.DeviceConfig} — sealed
  *       type for the target-specific binary the device executes.
- *       v0.1 ships {@code Bmv2} and {@code Raw}; {@code Tofino} planned
- *       for v0.2.</li>
+ *       v1.0 ships {@code Bmv2} and {@code Raw}; {@code Tofino} planned
+ *       for v1.x.</li>
  * </ul>
  *
  * <p>Each metadata type has both forward (name → entity) and reverse

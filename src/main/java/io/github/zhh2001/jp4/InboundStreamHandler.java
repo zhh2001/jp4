@@ -81,7 +81,7 @@ final class InboundStreamHandler implements StreamObserver<StreamMessageResponse
             local.dispatchPacketIn(msg.getPacket());
             return;
         }
-        // Digest / IdleTimeout messages: ignored in v0.1 (v0.2 work).
+        // Digest / IdleTimeout messages: ignored in v1.0 (v1.x work).
     }
 
     @Override

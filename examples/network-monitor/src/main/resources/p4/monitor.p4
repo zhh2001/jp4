@@ -12,7 +12,7 @@
  *
  * Not a forwarding pipeline — the data plane consumes every packet. Real
  * monitoring deployments use clone3() to mirror packets while keeping the
- * forwarding path; clone sessions live in the PRE which is v0.2 work for
+ * forwarding path; clone sessions live in the PRE which is v1.x work for
  * jp4. This example is intentionally minimal so it focuses on jp4's
  * Flow.Publisher consumption pattern.
  *

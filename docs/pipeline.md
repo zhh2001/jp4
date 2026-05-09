@@ -134,7 +134,7 @@ for (TableInfo t : p4info.tableNames().stream()
 - **`DeviceConfig.Raw`** is the escape hatch for any other target. The
   device-side parsing is the device's problem; jp4 just ships the bytes.
 
-Both have `fromFile(Path)` factories. v0.2 is expected to add
+Both have `fromFile(Path)` factories. v1.x is expected to add
 `DeviceConfig.Tofino` for the SDE; pull-requests welcome.
 
 ## Pipeline drift between client and device
