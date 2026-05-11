@@ -1,6 +1,7 @@
 package io.github.zhh2001.jp4.integration;
 
 import io.github.zhh2001.jp4.P4Switch;
+import io.github.zhh2001.jp4.entity.DropEvent;
 import io.github.zhh2001.jp4.entity.PacketIn;
 import io.github.zhh2001.jp4.entity.PacketOut;
 import io.github.zhh2001.jp4.error.P4ConnectionException;
@@ -24,6 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -367,6 +369,104 @@ class PacketIoTest {
         assertEquals(9, in.get(0).bitWidth());
         assertEquals("egress_port", out.get(0).name());
         assertEquals(9, out.get(0).bitWidth());
+    }
+
+    /** A {@code DropEvent} with reason QUEUE_FULL fires when more than
+     *  {@code PACKET_QUEUE_CAPACITY} (1024) PacketIns arrive without any
+     *  consumer draining the poll deque. The event carries the parsed
+     *  PacketIn and a message naming the capacity. */
+    @Test
+    void dropEventFiresOnQueueFull() throws Exception {
+        try (BMv2TestSupport perSw = new BMv2TestSupport("dropQueueFull").start()) {
+            P4Info p4info = P4Info.fromFile(Path.of("src/test/resources/p4/packet_io.p4info.txtpb"));
+            DeviceConfig dc = DeviceConfig.Bmv2.fromFile(Path.of("src/test/resources/p4/packet_io.json"));
+            try (P4Switch perSwitch = P4Switch.connectAsPrimary(perSw.grpcAddress())
+                    .bindPipeline(p4info, dc)) {
+                List<DropEvent> events = new CopyOnWriteArrayList<>();
+                perSwitch.onPacketDropped(events::add);
+
+                // No onPacketIn handler, no Publisher subscriber, no poll —
+                // the deque is the only sink, and nothing drains it.
+                for (int i = 0; i < 1100; i++) {
+                    perSwitch.send(PacketOut.builder()
+                            .payload(new byte[]{(byte) (i & 0xff), 0x00, 0x00, 0x00})
+                            .metadata("egress_port", 1)
+                            .build());
+                }
+
+                Awaitility.await().atMost(Duration.ofSeconds(20))
+                        .pollInterval(Duration.ofMillis(100))
+                        .until(() -> events.stream().anyMatch(
+                                e -> e.reason() == DropEvent.Reason.QUEUE_FULL));
+
+                DropEvent first = events.stream()
+                        .filter(e -> e.reason() == DropEvent.Reason.QUEUE_FULL)
+                        .findFirst().orElseThrow();
+                assertEquals(DropEvent.Reason.QUEUE_FULL, first.reason());
+                assertNotNull(first.packet(), "DropEvent.packet() must be non-null per the C-i shape");
+                assertTrue(first.message().contains("1024"),
+                        "message should name the capacity that was exceeded; was: " + first.message());
+                assertNotNull(first.timestamp(),
+                        "DropEvent.timestamp() must be non-null per the C-i shape");
+            }
+        }
+    }
+
+    /** A {@code DropEvent} with reason SUBSCRIBER_LAG fires when a
+     *  {@code Flow.Publisher} subscriber's per-subscriber mailbox fills past
+     *  the publisher's max-buffer-capacity. A subscriber that requests once
+     *  and then never again exhausts its demand on the first PacketIn; the
+     *  publisher buffers subsequent items up to the max-buffer-capacity and
+     *  then starts dropping, firing the per-subscriber drop callback once
+     *  per dropped item. */
+    @Test
+    void dropEventFiresOnSubscriberLag() throws Exception {
+        try (BMv2TestSupport perSw = new BMv2TestSupport("dropSubscriberLag").start()) {
+            P4Info p4info = P4Info.fromFile(Path.of("src/test/resources/p4/packet_io.p4info.txtpb"));
+            DeviceConfig dc = DeviceConfig.Bmv2.fromFile(Path.of("src/test/resources/p4/packet_io.json"));
+            try (P4Switch perSwitch = P4Switch.connectAsPrimary(perSw.grpcAddress())
+                    .bindPipeline(p4info, dc)) {
+                List<DropEvent> events = new CopyOnWriteArrayList<>();
+                perSwitch.onPacketDropped(events::add);
+
+                AtomicReference<Flow.Subscription> subRef = new AtomicReference<>();
+                perSwitch.packetInStream().subscribe(new Flow.Subscriber<>() {
+                    @Override public void onSubscribe(Flow.Subscription s) {
+                        subRef.set(s);
+                        s.request(1);   // request once, then never again — slow subscriber
+                    }
+                    @Override public void onNext(PacketIn p) { /* consume the one, do nothing more */ }
+                    @Override public void onError(Throwable t) { /* ignore */ }
+                    @Override public void onComplete() { /* ignore */ }
+                });
+
+                try {
+                    // Fill the per-subscriber mailbox past 1024 so the next item is dropped.
+                    for (int i = 0; i < 1100; i++) {
+                        perSwitch.send(PacketOut.builder()
+                                .payload(new byte[]{(byte) (i & 0xff), 0x00, 0x00, 0x00})
+                                .metadata("egress_port", 1)
+                                .build());
+                    }
+
+                    Awaitility.await().atMost(Duration.ofSeconds(20))
+                            .pollInterval(Duration.ofMillis(100))
+                            .until(() -> events.stream().anyMatch(
+                                    e -> e.reason() == DropEvent.Reason.SUBSCRIBER_LAG));
+
+                    DropEvent first = events.stream()
+                            .filter(e -> e.reason() == DropEvent.Reason.SUBSCRIBER_LAG)
+                            .findFirst().orElseThrow();
+                    assertEquals(DropEvent.Reason.SUBSCRIBER_LAG, first.reason());
+                    assertNotNull(first.packet(), "DropEvent.packet() must be non-null per the C-i shape");
+                    assertTrue(first.message().contains("timeout"),
+                            "message should name the offer-timeout mechanism; was: " + first.message());
+                } finally {
+                    Flow.Subscription s = subRef.get();
+                    if (s != null) s.cancel();
+                }
+            }
+        }
     }
 
     // -- helpers --

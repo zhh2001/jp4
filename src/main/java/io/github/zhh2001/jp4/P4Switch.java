@@ -1,5 +1,6 @@
 package io.github.zhh2001.jp4;
 
+import io.github.zhh2001.jp4.entity.DropEvent;
 import io.github.zhh2001.jp4.entity.PacketIn;
 import io.github.zhh2001.jp4.entity.PacketOut;
 import io.github.zhh2001.jp4.entity.TableEntry;
@@ -31,6 +32,7 @@ import p4.v1.P4RuntimeOuterClass.StreamMessageRequest;
 import p4.v1.P4RuntimeOuterClass.Uint128;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -150,6 +152,7 @@ public final class P4Switch implements AutoCloseable {
     private volatile P4ArbitrationLost closeReason;
 
     private volatile Consumer<MastershipStatus> listener;
+    private volatile Consumer<DropEvent> packetDroppedListener;
     private final AtomicReference<ScheduledFuture<?>> nextReconnect = new AtomicReference<>();
     private final AtomicLong reconnectAttempt = new AtomicLong(0L);
     private final AtomicReference<CompletableFuture<MastershipStatus>> reArbWaiter = new AtomicReference<>();
@@ -302,6 +305,36 @@ public final class P4Switch implements AutoCloseable {
      */
     public void onMastershipChange(Consumer<MastershipStatus> handler) {
         listener = Objects.requireNonNull(handler, "handler");
+    }
+
+    /**
+     * Registers a single listener for inbound PacketIn drops detected by the
+     * dispatch path. Replaces any prior listener. The listener observes the
+     * two backpressure-class dispatch-site drops: {@code SUBSCRIBER_LAG} when
+     * a {@link java.util.concurrent.Flow.Publisher} subscriber falls behind
+     * and an offer is dropped, and {@code QUEUE_FULL} when the poll-style
+     * packet deque is at capacity. A future {@code FILTERED} reason fires
+     * once the {@code Connector.packetInFilter} surface lands.
+     *
+     * <p>The callback runs on the same dedicated single-threaded executor as
+     * {@link #onMastershipChange} and {@link #onPacketIn}, so a slow listener
+     * holds up subsequent listener dispatches but never the gRPC inbound
+     * thread. The existing WARN log on each drop site is unchanged — log and
+     * listener are independent surfaces (operator-grep vs application-handle),
+     * and the log fires synchronously before the listener is scheduled.
+     *
+     * <p>Registration does not require a bound pipeline; drops require a
+     * parsed {@link io.github.zhh2001.jp4.entity.PacketIn} which in turn
+     * requires the pipeline, so events fire only after the pipeline has been
+     * bound. A user listener that throws is caught and logged at WARN; the
+     * dispatch path is never broken by user code.
+     *
+     * @param handler the listener; never {@code null}
+     * @throws NullPointerException if {@code handler} is null
+     * @since 1.2.0
+     */
+    public void onPacketDropped(Consumer<DropEvent> handler) {
+        packetDroppedListener = Objects.requireNonNull(handler, "handler");
     }
 
     /**
@@ -686,6 +719,8 @@ public final class P4Switch implements AutoCloseable {
         if (packetPublisher.hasSubscribers()) {
             packetPublisher.offer(parsed, 0L, TimeUnit.MILLISECONDS, (sub, item) -> {
                 LOG.warn("dropping PacketIn for slow subscriber on device {}", deviceId);
+                fireDropEvent(DropEvent.Reason.SUBSCRIBER_LAG, parsed,
+                        "subscriber unable to consume offered PacketIn before timeout");
                 return false;       // drop, do not retry
             });
         }
@@ -694,6 +729,32 @@ public final class P4Switch implements AutoCloseable {
         if (!packetDeque.offerLast(parsed)) {
             LOG.warn("packet deque full (capacity {}) on device {}; dropping PacketIn",
                     PACKET_QUEUE_CAPACITY, deviceId);
+            fireDropEvent(DropEvent.Reason.QUEUE_FULL, parsed,
+                    "packet deque at capacity " + PACKET_QUEUE_CAPACITY);
+        }
+    }
+
+    /**
+     * Internal helper for {@link #onPacketDropped}. Builds a {@link DropEvent}
+     * with the current wall-clock timestamp and delivers it to the registered
+     * listener on the callback executor, mirroring the shape of
+     * {@link #dispatchMastership}. A null listener is a fast-path no-op; a
+     * listener-thrown {@link RuntimeException} is swallowed so user code
+     * cannot break the dispatch thread; a {@link RejectedExecutionException}
+     * (the executor has shut down during {@code close()}) drops the event
+     * cleanly.
+     */
+    private void fireDropEvent(DropEvent.Reason reason, PacketIn packet, String message) {
+        Consumer<DropEvent> l = packetDroppedListener;
+        if (l == null) return;
+        DropEvent event = new DropEvent(reason, Instant.now(), packet, message);
+        try {
+            callbackExecutor.execute(() -> {
+                try { l.accept(event); }
+                catch (RuntimeException ignored) { /* user code; don't kill the thread */ }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // executor shut down (closing); event drops cleanly.
         }
     }
 
