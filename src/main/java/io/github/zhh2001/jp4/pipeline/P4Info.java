@@ -47,6 +47,7 @@ public final class P4Info {
     private final Map<String, PacketMetadataInfo> packetOutByName;
     private final Map<Integer, PacketMetadataInfo> packetInById;
     private final Map<Integer, PacketMetadataInfo> packetOutById;
+    private final Map<Integer, String> digestNamesById;
 
     private P4Info(P4InfoOuterClass.P4Info proto) {
         this.proto = proto;
@@ -83,6 +84,17 @@ public final class P4Info {
         this.packetOutByName  = indexByName(this.packetOutMetadata);
         this.packetInById     = indexById(this.packetInMetadata);
         this.packetOutById    = indexById(this.packetOutMetadata);
+
+        // Digest externs: each P4Info Digest declaration carries a Preamble (id
+        // + name + alias) and a P4DataTypeSpec describing the payload shape.
+        // v1.3 indexes the name by id only — typed payload decoding via the
+        // type_spec is a future v1.x release, so DigestEvent ships raw bytes
+        // and consumers decode through p4.v1.P4Data themselves.
+        Map<Integer, String> digests = new HashMap<>(proto.getDigestsCount() * 2);
+        for (P4InfoOuterClass.Digest d : proto.getDigestsList()) {
+            digests.put(d.getPreamble().getId(), d.getPreamble().getName());
+        }
+        this.digestNamesById = Map.copyOf(digests);
     }
 
     private static Map<String, PacketMetadataInfo> indexByName(List<PacketMetadataInfo> list) {
@@ -286,6 +298,22 @@ public final class P4Info {
     /** Reverse lookup for {@code packet_out}; null when unknown. */
     public PacketMetadataInfo packetOutFieldById(int id) {
         return packetOutById.get(id);
+    }
+
+    /**
+     * Reverse lookup of a digest extern by numeric id, returning the digest's
+     * fully-qualified P4 name; {@code null} when the bound P4Info declares no
+     * digest with that id. Used by the inbound dispatch path to resolve a
+     * {@code DigestList.digest_id} from the wire to a human-readable name
+     * before firing a {@link io.github.zhh2001.jp4.entity.DigestEvent}.
+     * Follows the lookup-fail-equals-null convention shared with
+     * {@link #tableInfoById(int)}, {@link #actionInfoById(int)},
+     * {@link #packetInFieldById(int)}, and {@link #packetOutFieldById(int)}.
+     *
+     * @since 1.3.0
+     */
+    public String digestNameById(int id) {
+        return digestNamesById.get(id);
     }
 
     /** Internal access to the underlying parsed protobuf — used by P4Switch when

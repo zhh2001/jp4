@@ -161,4 +161,41 @@ class P4InfoTest {
         assertEquals(List.of(), empty.tableNames());
         assertEquals(List.of(), empty.actionNames());
     }
+
+    @Test
+    void digestLookupResolvesDigestNameById() {
+        // Build a P4Info proto carrying one Digest declaration and round-trip its
+        // bytes through P4Info.fromBytes to exercise the parsing path used by
+        // ConnectorTest fixtures. Mirrors the inline-proto style of
+        // emptyP4InfoIsEmpty; once a real digest_idle.p4 fixture lands, that
+        // file's compiled .p4info.txtpb is the assertion surface, but the
+        // ground-truth lookup logic is what this unit test covers.
+        int digestId = 0x01000001;
+        String digestName = "MyIngress.learn_digest";
+        var proto = p4.config.v1.P4InfoOuterClass.P4Info.newBuilder()
+                .addDigests(p4.config.v1.P4InfoOuterClass.Digest.newBuilder()
+                        .setPreamble(p4.config.v1.P4InfoOuterClass.Preamble.newBuilder()
+                                .setId(digestId)
+                                .setName(digestName)
+                                .build())
+                        .build())
+                .build();
+        P4Info info = P4Info.fromBytes(proto.toByteArray());
+        assertEquals(digestName, info.digestNameById(digestId),
+                "digest id should resolve to the declared P4 name");
+    }
+
+    @Test
+    void digestLookupReturnsNullForUnknownId() {
+        // P4Info fixtures used by the rest of the test suite carry no digest
+        // declarations; queries against any digest id therefore return null,
+        // matching the lookup-fail convention shared with tableInfoById /
+        // actionInfoById / packetInFieldById.
+        P4Info info = P4Info.fromText(TXT);
+        assertNull(info.digestNameById(999_999), "unknown digest id");
+        // An empty P4Info also returns null, regardless of the queried id.
+        var emptyBytes = p4.config.v1.P4InfoOuterClass.P4Info.getDefaultInstance().toByteArray();
+        P4Info empty = P4Info.fromBytes(emptyBytes);
+        assertNull(empty.digestNameById(0x01000001), "no digest declared in empty P4Info");
+    }
 }
