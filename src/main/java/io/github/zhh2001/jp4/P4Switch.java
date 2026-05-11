@@ -144,6 +144,13 @@ public final class P4Switch implements AutoCloseable {
      *  {@code closeReason} and closes the switch. */
     private final boolean preserveRoleOnReconnect;
 
+    /** Mirror of {@code Connector.packetInFilter()} captured at construction. When
+     *  non-null, applied in {@link #dispatchPacketIn} after parsing and before
+     *  fan-out; a packet for which the predicate returns false (or for which the
+     *  predicate throws) is dropped and a {@code FILTERED} {@link DropEvent} is
+     *  dispatched. Default null = pass all. */
+    private final Predicate<? super PacketIn> packetInFilter;
+
     /** Set by the fail-fast path in {@link #attemptReconnect()} when reconnect
      *  yields a non-Primary role under {@code preserveRoleOnReconnect}. The
      *  writability and readability gates throw this in preference to the generic
@@ -183,7 +190,8 @@ public final class P4Switch implements AutoCloseable {
              StreamSession initialSession,
              MastershipStatus initialMastership,
              boolean originallyRequestedPrimary,
-             boolean preserveRoleOnReconnect) {
+             boolean preserveRoleOnReconnect,
+             Predicate<? super PacketIn> packetInFilter) {
         this.address = address;
         this.deviceId = deviceId;
         this.electionId = electionId;
@@ -198,6 +206,7 @@ public final class P4Switch implements AutoCloseable {
         this.mastership.set(initialMastership);
         this.originallyRequestedPrimary = originallyRequestedPrimary;
         this.preserveRoleOnReconnect = preserveRoleOnReconnect;
+        this.packetInFilter = packetInFilter;
         // Subscriber callbacks share callbackExecutor with onPacketIn / onMastershipChange,
         // preserving the FIFO single-thread contract. Buffer per subscriber matches the
         // poll-deque capacity for symmetry.
@@ -698,6 +707,28 @@ public final class P4Switch implements AutoCloseable {
             LOG.warn("dropping PacketIn on device {} that failed to parse: {}",
                     deviceId, re.getMessage());
             return;
+        }
+        // Pre-fan-out filter: user opt-in via Connector.packetInFilter. Filter is a
+        // user choice (not an ops anomaly), so the normal-reject path does not log
+        // WARN — only fires the FILTERED DropEvent for application-side handling.
+        // A filter that throws is an application bug; that path does log WARN
+        // (ops surface) in addition to firing FILTERED.
+        if (packetInFilter != null) {
+            final boolean keep;
+            try {
+                keep = packetInFilter.test(parsed);
+            } catch (RuntimeException re) {
+                LOG.warn("packetInFilter threw on device {}; treating as drop: {}",
+                        deviceId, re.toString());
+                fireDropEvent(DropEvent.Reason.FILTERED, parsed,
+                        "packetInFilter threw " + re.getClass().getSimpleName());
+                return;
+            }
+            if (!keep) {
+                fireDropEvent(DropEvent.Reason.FILTERED, parsed,
+                        "rejected by packetInFilter");
+                return;
+            }
         }
         // 1. Single replaceable handler.
         Consumer<PacketIn> h = packetHandler;

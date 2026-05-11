@@ -1,5 +1,6 @@
 package io.github.zhh2001.jp4;
 
+import io.github.zhh2001.jp4.entity.PacketIn;
 import io.github.zhh2001.jp4.error.P4ArbitrationLost;
 import io.github.zhh2001.jp4.error.P4ConnectionException;
 import io.github.zhh2001.jp4.types.ElectionId;
@@ -21,6 +22,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 /**
  * Intermediate stage between {@link P4Switch#connect(String)} and one of the terminals
@@ -46,6 +48,7 @@ public final class Connector {
     private ReconnectPolicy reconnectPolicy = ReconnectPolicy.noRetry();
     private int packetInQueueSize = 1024;
     private boolean preserveRoleOnReconnect = false;
+    private Predicate<? super PacketIn> packetInFilter = null;
 
     Connector(String address) {
         this.address = Objects.requireNonNull(address, "address");
@@ -125,15 +128,58 @@ public final class Connector {
         return this;
     }
 
+    /**
+     * Configures a predicate that runs against every parsed inbound
+     * {@link PacketIn} after parsing and before the fan-out to the registered
+     * handler, {@code Flow.Publisher} subscribers, and the poll deque. A
+     * packet for which the predicate returns {@code false} is dropped — no
+     * sink sees it — and a {@code DropEvent} with reason {@code FILTERED} is
+     * dispatched through the listener registered via
+     * {@link P4Switch#onPacketDropped(java.util.function.Consumer)}. Unlike
+     * the {@code SUBSCRIBER_LAG} and {@code QUEUE_FULL} dispatch sites, no
+     * WARN log is emitted on the normal filter-reject path: the filter is a
+     * user-supplied opt-in choice, not a runtime anomaly worth surfacing to
+     * ops grep.
+     *
+     * <p>A filter that throws a {@link RuntimeException} is treated as a
+     * drop: the dispatch path catches the exception, logs at WARN (because a
+     * filter that throws is an application bug worth surfacing), and fires a
+     * {@code FILTERED} {@code DropEvent} whose {@code message} names the
+     * thrown exception's simple class name. The application-side listener
+     * can distinguish normal-reject ({@code "rejected by packetInFilter"})
+     * from filter-threw ({@code "packetInFilter threw <ClassName>"}) on the
+     * message component.
+     *
+     * <p>Default is {@code null} — every packet passes through unchanged.
+     * Setting a filter is a pure additive change for v1.0 / v1.1 callers; no
+     * SemVer impact.
+     *
+     * <p>The signature accepts {@code Predicate<? super PacketIn>} so callers
+     * can supply a {@code Predicate<Object>} or {@code Predicate<PacketIn>}
+     * alike, matching the PECS shape of
+     * {@code ReadQuery.where(Predicate<? super TableEntry>)}.
+     *
+     * @param filter the predicate to apply to each parsed PacketIn; never
+     *               {@code null}
+     * @return this builder, for chaining
+     * @throws NullPointerException if {@code filter} is null
+     * @since 1.2.0
+     */
+    public Connector packetInFilter(Predicate<? super PacketIn> filter) {
+        this.packetInFilter = Objects.requireNonNull(filter, "filter");
+        return this;
+    }
+
     public P4Switch asPrimary()   { return open(/*requirePrimary=*/ true); }
     public P4Switch asSecondary() { return open(/*requirePrimary=*/ false); }
 
-    String address()                   { return address; }
-    long deviceId()                    { return deviceId; }
-    ElectionId electionId()            { return electionId; }
-    ReconnectPolicy reconnectPolicy()  { return reconnectPolicy; }
-    int packetInQueueSize()            { return packetInQueueSize; }
-    boolean preserveRoleOnReconnect()  { return preserveRoleOnReconnect; }
+    String address()                              { return address; }
+    long deviceId()                               { return deviceId; }
+    ElectionId electionId()                       { return electionId; }
+    ReconnectPolicy reconnectPolicy()             { return reconnectPolicy; }
+    int packetInQueueSize()                       { return packetInQueueSize; }
+    boolean preserveRoleOnReconnect()             { return preserveRoleOnReconnect; }
+    Predicate<? super PacketIn> packetInFilter()  { return packetInFilter; }
 
     // ---------- internal -----------------------------------------------------
 
@@ -227,7 +273,8 @@ public final class Connector {
                 outboundExec, callbackExec, reconnectExec,
                 outboundThreadRef[0], callbackThreadRef[0],
                 initialSession, initial,
-                requirePrimary, preserveRoleOnReconnect);
+                requirePrimary, preserveRoleOnReconnect,
+                packetInFilter);
         handler.attach(sw);
         return sw;
     }

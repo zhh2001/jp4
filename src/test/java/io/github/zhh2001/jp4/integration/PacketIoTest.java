@@ -469,6 +469,67 @@ class PacketIoTest {
         }
     }
 
+    /** A {@code Connector.packetInFilter} that returns false for every parsed
+     *  PacketIn causes the dispatch path to drop the packet before any sink
+     *  (callback / Publisher / deque) sees it, and fires a FILTERED
+     *  {@link DropEvent} for application-side observation. The normal-reject
+     *  path emits no WARN log — the filter is a user opt-in choice, not an
+     *  ops anomaly. */
+    @Test
+    void filteredPacketTriggersFilteredDropEventAndSuppressesFanOut() throws Exception {
+        try (BMv2TestSupport perSw = new BMv2TestSupport("dropFiltered").start()) {
+            P4Info p4info = P4Info.fromFile(Path.of("src/test/resources/p4/packet_io.p4info.txtpb"));
+            DeviceConfig dc = DeviceConfig.Bmv2.fromFile(Path.of("src/test/resources/p4/packet_io.json"));
+
+            // Filter rejects every parsed PacketIn (returns false unconditionally).
+            try (P4Switch perSwitch = P4Switch.connect(perSw.grpcAddress())
+                    .packetInFilter(p -> false)
+                    .asPrimary()) {
+                perSwitch.bindPipeline(p4info, dc);
+
+                List<DropEvent> events = new CopyOnWriteArrayList<>();
+                perSwitch.onPacketDropped(events::add);
+
+                // No-op onPacketIn handler — must NOT be invoked because the
+                // filter rejects before the handler dispatch.
+                AtomicReference<PacketIn> leaked = new AtomicReference<>();
+                perSwitch.onPacketIn(leaked::set);
+
+                final int n = 5;
+                for (int i = 0; i < n; i++) {
+                    perSwitch.send(PacketOut.builder()
+                            .payload(new byte[]{(byte) (i & 0xff), 0x01, 0x02})
+                            .metadata("egress_port", 1)
+                            .build());
+                }
+
+                Awaitility.await().atMost(Duration.ofSeconds(10))
+                        .pollInterval(Duration.ofMillis(100))
+                        .until(() -> events.stream()
+                                .filter(e -> e.reason() == DropEvent.Reason.FILTERED)
+                                .count() >= n);
+
+                long filteredCount = events.stream()
+                        .filter(e -> e.reason() == DropEvent.Reason.FILTERED)
+                        .count();
+                assertTrue(filteredCount >= n,
+                        "expected >= " + n + " FILTERED events, got " + filteredCount + " (events=" + events + ")");
+                events.stream()
+                        .filter(e -> e.reason() == DropEvent.Reason.FILTERED)
+                        .forEach(e -> {
+                            assertNotNull(e.packet(), "FILTERED DropEvent.packet() must be non-null");
+                            assertEquals("rejected by packetInFilter", e.message(),
+                                    "normal-reject path message should be the documented mechanism-description");
+                        });
+
+                assertNull(leaked.get(),
+                        "onPacketIn handler must not be invoked when packetInFilter rejects");
+                assertFalse(perSwitch.pollPacketIn(Duration.ofMillis(200)).isPresent(),
+                        "pollPacketIn must not surface a packet the filter rejected");
+            }
+        }
+    }
+
     // -- helpers --
 
     private static Flow.Subscriber<PacketIn> subscriberCompleting(CompletableFuture<PacketIn> f) {
