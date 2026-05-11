@@ -162,8 +162,6 @@ this section is a cross-reference, kept in sync with that file.
 - `DeviceConfig.Tofino` variant alongside `Bmv2` and `Raw` —
   community-driven; no internal commitment, contributions welcome
   with hardware-validated test results.
-- `sw.onPacketDropped(Consumer<DropEvent>)` hook for backpressure
-  observability.
 - Digest and IdleTimeout stream-message handlers (P4Runtime spec
   §7 / §11.4) — currently dropped at the inbound parser; v1.x will
   add typed subscription APIs matching the existing `onPacketIn` /
@@ -172,8 +170,12 @@ this section is a cross-reference, kept in sync with that file.
   `examples-lb` / `examples-monitor` jobs grep a small set of
   distinctive lines from each example's stdout; v1.x should diff the
   full captured output against each example's README "Expected
-  output" block. Reliable byte-identical diff requires a
-  `Connector`-level packet-ingestion control surface (so unrelated
-  kernel traffic on the BMv2 ingress interface cannot leak into the
-  example output via the unbounded fan-out path); design TBD, held
-  for a future v1.x release.
+  output" block. The 1.2.0 release added a `Connector`-level
+  packet-ingestion control surface (`c35eb5a`); investigation during
+  that release prep found the residual loss-rate flake on busy
+  loopback hosts has its root cause upstream of jp4 (BMv2 outbound
+  saturation under sustained loopback noise). Held; the
+  Connector-level surface is shipped and useful for any application
+  running against an environment with real noise — this Examples-CI
+  entry remains held only because the demos currently run on an
+  interface where lo-noise dominates.

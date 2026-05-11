@@ -8,6 +8,52 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 (future v1.x work tracked in the Roadmap section)
 
+## [1.2.0] — YYYY-MM-DD
+
+<!-- date filled at release time -->
+
+v1.2 is a SemVer-minor addition over v1.1; the v1.1 public surface
+is unchanged. See [`docs/migration-1.1-to-1.2.md`](docs/migration-1.1-to-1.2.md)
+for usage examples of each new method. The v1.2 release introduces
+the packet-ingestion control surface: a typed drop event, a listener
+to observe drops, and a pre-fan-out filter to reject inbound packets
+before any sink sees them.
+
+### Added
+
+- **`DropEvent` record + `Reason` enum** (commit `4e88813`) — a
+  typed value carrying the dispatch-site reason
+  (`SUBSCRIBER_LAG`, `QUEUE_FULL`, `FILTERED`), wall-clock
+  timestamp, parsed `PacketIn`, and a free-form human-readable
+  message useful for log correlation without machine-parsing the
+  reason enum. The record is the data shape the new
+  `P4Switch.onPacketDropped` listener delivers.
+- **`P4Switch.onPacketDropped(Consumer<DropEvent>)`** (commit
+  `8ca1a5b`) — single replaceable listener for inbound PacketIn
+  drops detected by the dispatch path. Observes `SUBSCRIBER_LAG`
+  (a `Flow.Publisher` subscriber offer drop) and `QUEUE_FULL`
+  (the poll-style deque at capacity); a future `FILTERED` reason
+  fires from the `Connector.packetInFilter` dispatch site. Mirrors
+  `onMastershipChange` shape: volatile field, NPE on null,
+  last-write-wins, runs on the shared single-threaded callback
+  executor. Existing WARN logs on each drop site fire
+  synchronously before the listener is scheduled — log and
+  listener are independent surfaces (operator-grep vs
+  application-handle).
+- **`Connector.packetInFilter(Predicate<? super PacketIn>)`**
+  (commit `c35eb5a`) — pre-fan-out filter that runs in
+  `P4Switch.dispatchPacketIn` after `PacketProto.parseIn` and
+  before the callback / Publisher / deque fan-out. A packet for
+  which the filter returns false is dropped (no sink sees it) and
+  a `FILTERED` `DropEvent` fires through the
+  `P4Switch.onPacketDropped` listener with the message
+  `"rejected by packetInFilter"`. A filter that throws is treated
+  as a drop (safe default), logs at WARN, and fires a `FILTERED`
+  `DropEvent` whose message names the thrown exception's simple
+  class name. Default null = pass all; v1.0 / v1.1 callers see no
+  behaviour change. The `Predicate<? super PacketIn>` shape
+  matches `ReadQuery.where`'s PECS convention from 1.1.0.
+
 ## [1.1.0] — 2026-05-09
 
 v1.1 is a SemVer-minor addition over v1.0; the v1.0 public surface
@@ -226,24 +272,33 @@ These are tracked for v1.x point releases without committed dates:
 - `DeviceConfig.Tofino` variant alongside `Bmv2` and `Raw` —
   community-driven; no internal commitment, contributions welcome
   with hardware-validated test results.
-- `sw.onPacketDropped(Consumer<DropEvent>)` hook for backpressure
-  observability.
 - Digest and IdleTimeout stream-message handlers (P4Runtime spec
   §7 / §11.4) — currently dropped at the inbound parser; v1.x will
   add typed subscription APIs matching the existing `onPacketIn` /
   `onMastershipChange` shape.
 - Examples-CI assertion strengthening — current `examples-l2` /
   `examples-lb` / `examples-monitor` jobs grep a small set of
-  distinctive lines from each example's stdout. v1.x should diff the
-  full captured output against each example's README "Expected
+  distinctive lines from each example's stdout. v1.x should diff
+  the full captured output against each example's README "Expected
   output" block, so docs-vs-actual mismatches fail CI rather than
-  waiting for a manual review pass. Reliable byte-identical diff
-  requires a `Connector`-level packet-ingestion control surface (so
-  unrelated kernel traffic on the BMv2 ingress interface cannot leak
-  into the example output via the unbounded fan-out path); design
-  TBD, held for a future v1.x release.
+  waiting for a manual review pass. The 1.2.0 release added a
+  `Connector`-level packet-ingestion control surface (`c35eb5a`)
+  that filters noise before it reaches the application; an attempt
+  to use that surface to unlock byte-identical diff during the
+  c35eb5a-era investigation found that the residual loss-rate flake
+  on busy loopback hosts has its root cause upstream of jp4 —
+  BMv2's outbound StreamChannel saturates under sustained loopback
+  noise and AA / BB demo packets are queued behind the noise.
+  Held; the root cause is environmental (BMv2 + interface choice)
+  and a fix would either move the demos to a quieter interface
+  (veth pair) or change the demo timing budget. The Connector-level
+  packet-ingestion control surface itself (`c35eb5a`) is shipped
+  and useful for any application running against an environment
+  with real noise; this Examples-CI entry remains held only because
+  the demos currently run on an interface where lo-noise dominates.
 
-[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/zhh2001/jp4/releases/tag/v1.2.0
 [1.1.0]: https://github.com/zhh2001/jp4/releases/tag/v1.1.0
 [1.0.0]: https://github.com/zhh2001/jp4/releases/tag/v1.0.0
 [0.1.0]: https://github.com/zhh2001/jp4/releases/tag/v0.1.0

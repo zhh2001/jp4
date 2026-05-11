@@ -123,6 +123,7 @@ In-depth guides for each major API surface live under [`docs/`](docs/):
 - [Error handling](docs/error-handling.md) — the four exception types and when each fires.
 - [Migration guide: v0.1 → v1.0](docs/migration-0.1-to-1.0.md) — API surface changes between v0.1 and v1.0, with before/after examples for callers updating.
 - [Migration guide: v1.0 → v1.1](docs/migration-1.0-to-1.1.md) — usage examples for the methods added in v1.1; SemVer-minor, no breaking changes for v1.0 callers.
+- [Migration guide: v1.1 → v1.2](docs/migration-1.1-to-1.2.md) — usage examples for the packet-ingestion control surface added in v1.2 (DropEvent, onPacketDropped, packetInFilter); SemVer-minor, no breaking changes for v1.1 callers.
 
 The Javadoc for the public API is the canonical reference; these guides
 are how-to / tutorial-shaped, not API catalogues.

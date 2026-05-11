@@ -252,13 +252,19 @@ authoritative list; this is the current snapshot.
 - **`DeviceConfig.Tofino`** variant alongside `Bmv2` and `Raw` —
   community-driven; no internal commitment, contributions welcome
   with hardware-validated test results.
-- **`sw.onPacketDropped(Consumer<DropEvent>)` hook** for backpressure
-  observability.
 - **Digest and IdleTimeout stream-message handlers** (P4Runtime
   spec §7 / §11.4) — currently dropped at the inbound parser.
+  (`sw.onPacketDropped(Consumer<DropEvent>)` from the original v1.x
+  roadmap entry shipped in v1.2 alongside `Connector.packetInFilter`
+  and the `DropEvent` record; see
+  [`migration-1.1-to-1.2.md`](migration-1.1-to-1.2.md).)
 - **Examples-CI full-output diff** — strengthen example assertions
   from grep-for-distinctive-lines to full-block diff against README
-  expected output. Design TBD; held for a future v1.x release.
+  expected output. Held; investigation during the 1.2.0 release prep
+  found the residual demo loss-rate flake on busy loopback hosts has
+  its root cause upstream of jp4 (BMv2 outbound saturation under
+  sustained loopback noise), not in the controller-side dispatch path
+  that the new `Connector.packetInFilter` (1.2.0) addresses.
 
 Each item is tracked in the CHANGELOG; community input on priority
 is welcome via
