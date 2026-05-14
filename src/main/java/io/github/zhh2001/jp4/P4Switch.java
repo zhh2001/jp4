@@ -1,5 +1,6 @@
 package io.github.zhh2001.jp4;
 
+import io.github.zhh2001.jp4.entity.DigestEvent;
 import io.github.zhh2001.jp4.entity.DropEvent;
 import io.github.zhh2001.jp4.entity.PacketIn;
 import io.github.zhh2001.jp4.entity.PacketOut;
@@ -160,6 +161,7 @@ public final class P4Switch implements AutoCloseable {
 
     private volatile Consumer<MastershipStatus> listener;
     private volatile Consumer<DropEvent> packetDroppedListener;
+    private volatile Consumer<DigestEvent> digestListener;
     private final AtomicReference<ScheduledFuture<?>> nextReconnect = new AtomicReference<>();
     private final AtomicLong reconnectAttempt = new AtomicLong(0L);
     private final AtomicReference<CompletableFuture<MastershipStatus>> reArbWaiter = new AtomicReference<>();
@@ -344,6 +346,53 @@ public final class P4Switch implements AutoCloseable {
      */
     public void onPacketDropped(Consumer<DropEvent> handler) {
         packetDroppedListener = Objects.requireNonNull(handler, "handler");
+    }
+
+    /**
+     * Registers a single listener for inbound {@code DigestList} stream messages
+     * the device emits when a configured digest extern collects entries.
+     * Replaces any prior listener (last-write-wins).
+     *
+     * <p>Eager pipeline-bound check: the dispatch path resolves
+     * {@code DigestList.digest_id} to a human-readable digest name through
+     * {@link P4Info#digestNameById(int)}, and without a bound P4Info no
+     * {@link DigestEvent} can be constructed. Registering before
+     * {@code bindPipeline} / {@code loadPipeline} throws
+     * {@link P4PipelineException} so the silent-drop trap that would otherwise
+     * apply to every received digest is caught at registration rather than
+     * masquerading as no traffic.
+     *
+     * <p>The callback runs on the same dedicated single-threaded executor as
+     * {@link #onMastershipChange}, {@link #onPacketIn}, and
+     * {@link #onPacketDropped}, so a slow listener holds up subsequent
+     * dispatches but never the gRPC inbound thread. A listener that throws is
+     * caught and swallowed on the dispatch side; user code cannot break the
+     * dispatch thread.
+     *
+     * <p>The library auto-acks every received {@code DigestList} via the
+     * P4Runtime {@code DigestListAck} protocol message before invoking the
+     * listener, including the three drop paths (no pipeline bound at the
+     * moment of dispatch, no listener registered, or an unknown
+     * {@code digest_id}); without the ack the device's spec-defined
+     * {@code ack_timeout_ns} window suppresses retries for the same data,
+     * which would silently rob the application of digest observability.
+     * Explicit ack control is deferred to a future v1.x release pending a
+     * concrete flow-control use case.
+     *
+     * <p>Ack send shares the outbound stream executor with
+     * {@link #send(io.github.zhh2001.jp4.entity.PacketOut)} and arbitration;
+     * an application that saturates outbound with PacketOuts will see digest
+     * ack latency rise correspondingly.
+     *
+     * @param handler the listener; never {@code null}
+     * @throws NullPointerException if {@code handler} is null
+     * @throws P4PipelineException  if no pipeline is bound
+     * @since 1.3.0
+     */
+    public void onDigest(Consumer<DigestEvent> handler) {
+        Objects.requireNonNull(handler, "handler");
+        requirePipelineBound();
+        digestListener = handler;
     }
 
     /**
@@ -787,6 +836,112 @@ public final class P4Switch implements AutoCloseable {
         } catch (RejectedExecutionException ignored) {
             // executor shut down (closing); event drops cleanly.
         }
+    }
+
+    /**
+     * Package-private, called by {@link InboundStreamHandler#onNext} on the gRPC
+     * inbound thread for each {@code DigestList} stream message. The dispatch
+     * order is ack-first, drop-checks-second, listener-third:
+     *
+     * <ol>
+     *   <li>Auto-ack unconditionally — the device suppresses retries on the
+     *       same data once {@code ack_timeout_ns} expires, so the ack must
+     *       fire whether or not the library can deliver the event to the
+     *       application.</li>
+     *   <li>Resolve the digest name through {@link P4Info#digestNameById(int)};
+     *       drop with a WARN if no pipeline is bound or the id is unknown
+     *       (P4Info / device drift).</li>
+     *   <li>Build a {@link DigestEvent} and hand it off to the listener on
+     *       the shared callback executor.</li>
+     * </ol>
+     *
+     * Listener-thrown {@link RuntimeException}s are swallowed; a closing
+     * executor drops the dispatch cleanly.
+     */
+    void dispatchDigest(p4.v1.P4RuntimeOuterClass.DigestList proto) {
+        if (closing.get()) return;
+
+        // 1. Ack first, unconditional. Decoupled from listener delivery so a
+        //    drop on the dispatch side never causes the device to suppress
+        //    subsequent digests for the same data.
+        sendDigestAck(proto.getDigestId(), proto.getListId());
+
+        // 2. Resolve the digest's P4 name.
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            LOG.warn("dropping DigestList on device {}: no pipeline bound", deviceId);
+            return;
+        }
+        String name = pipe.p4info().digestNameById(proto.getDigestId());
+        if (name == null) {
+            LOG.warn("dropping DigestList on device {}: digest_id {} not in bound P4Info",
+                    deviceId, proto.getDigestId());
+            return;
+        }
+
+        // 3. Build and dispatch.
+        Consumer<DigestEvent> l = digestListener;
+        if (l == null) return;
+        DigestEvent event = buildDigestEvent(name, proto);
+        try {
+            callbackExecutor.execute(() -> {
+                try { l.accept(event); }
+                catch (RuntimeException ignored) { /* user code; don't kill the thread */ }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // executor shut down (closing); event drops cleanly.
+        }
+    }
+
+    /**
+     * Enqueues a {@code DigestListAck} on the outbound stream executor. Fire
+     * and forget — failure to send is logged at WARN; the next dispatch will
+     * try again the next time the device fires a {@code DigestList} (which,
+     * after {@code ack_timeout_ns}, it will).
+     */
+    private void sendDigestAck(int digestId, long listId) {
+        StreamSession sess = session.get();
+        if (sess == null) return;
+        var ack = p4.v1.P4RuntimeOuterClass.DigestListAck.newBuilder()
+                .setDigestId(digestId)
+                .setListId(listId)
+                .build();
+        StreamMessageRequest req = StreamMessageRequest.newBuilder()
+                .setDigestAck(ack)
+                .build();
+        try {
+            outboundExecutor.execute(() -> {
+                try { sess.reqObserver.onNext(req); }
+                catch (RuntimeException re) {
+                    LOG.warn("digest ack send failed on device {} for digest_id {} list_id {}: {}",
+                            deviceId, digestId, listId, re.toString());
+                }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // executor shut down (closing); ack drops cleanly.
+        }
+    }
+
+    /**
+     * Maps a wire {@code DigestList} to the {@link DigestEvent} record. The
+     * payload list is exposed as a {@code List<Bytes>} — each element is the
+     * serialised form of one {@code p4.v1.P4Data} message, in declaration
+     * order. Consumers that want typed payload values decode through
+     * {@code P4DataOuterClass.P4Data.parseFrom} themselves; typed-value
+     * helpers are a future v1.x topic.
+     */
+    private static DigestEvent buildDigestEvent(
+            String name, p4.v1.P4RuntimeOuterClass.DigestList proto) {
+        List<Bytes> data = new ArrayList<>(proto.getDataCount());
+        for (p4.v1.P4DataOuterClass.P4Data datum : proto.getDataList()) {
+            data.add(Bytes.of(datum.toByteArray()));
+        }
+        return new DigestEvent(
+                name,
+                proto.getListId(),
+                data,
+                Instant.ofEpochSecond(0, proto.getTimestamp()),
+                proto.getDigestId());
     }
 
     /**
