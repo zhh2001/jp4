@@ -163,9 +163,10 @@ this section is a cross-reference, kept in sync with that file.
   community-driven; no internal commitment, contributions welcome
   with hardware-validated test results.
 - Digest and IdleTimeout stream-message handlers (P4Runtime spec
-  §7 / §11.4) — currently dropped at the inbound parser; v1.x will
-  add typed subscription APIs matching the existing `onPacketIn` /
-  `onMastershipChange` shape.
+  §7 / §11.4) — shipped in v1.3 alongside `DigestConfig`,
+  `P4Switch.enableDigest`, `P4Switch.onDigest`,
+  `P4Switch.onIdleTimeout`, and `TableEntry.idleTimeoutNs`; see
+  [`migration-1.2-to-1.3.md`](migration-1.2-to-1.3.md).
 - Examples-CI assertion strengthening — current `examples-l2` /
   `examples-lb` / `examples-monitor` jobs grep a small set of
   distinctive lines from each example's stdout; v1.x should diff the

@@ -253,7 +253,10 @@ authoritative list; this is the current snapshot.
   community-driven; no internal commitment, contributions welcome
   with hardware-validated test results.
 - **Digest and IdleTimeout stream-message handlers** (P4Runtime
-  spec §7 / §11.4) — currently dropped at the inbound parser.
+  spec §7 / §11.4) — shipped in v1.3 alongside `DigestConfig`,
+  `P4Switch.enableDigest`, `P4Switch.onDigest`,
+  `P4Switch.onIdleTimeout`, and `TableEntry.idleTimeoutNs`; see
+  [`migration-1.2-to-1.3.md`](migration-1.2-to-1.3.md).
   (`sw.onPacketDropped(Consumer<DropEvent>)` from the original v1.x
   roadmap entry shipped in v1.2 alongside `Connector.packetInFilter`
   and the `DropEvent` record; see

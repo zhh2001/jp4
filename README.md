@@ -124,6 +124,7 @@ In-depth guides for each major API surface live under [`docs/`](docs/):
 - [Migration guide: v0.1 → v1.0](docs/migration-0.1-to-1.0.md) — API surface changes between v0.1 and v1.0, with before/after examples for callers updating.
 - [Migration guide: v1.0 → v1.1](docs/migration-1.0-to-1.1.md) — usage examples for the methods added in v1.1; SemVer-minor, no breaking changes for v1.0 callers.
 - [Migration guide: v1.1 → v1.2](docs/migration-1.1-to-1.2.md) — usage examples for the packet-ingestion control surface added in v1.2 (DropEvent, onPacketDropped, packetInFilter); SemVer-minor, no breaking changes for v1.1 callers.
+- [Migration guide: v1.2 → v1.3](docs/migration-1.2-to-1.3.md) — usage examples for the stream-message dispatch family added in v1.3 (DigestEvent, IdleTimeoutEvent, onDigest, onIdleTimeout, DigestConfig, enableDigest, TableEntry.idleTimeoutNs); SemVer-minor, no breaking changes for v1.2 callers.
 
 The Javadoc for the public API is the canonical reference; these guides
 are how-to / tutorial-shaped, not API catalogues.
@@ -210,9 +211,6 @@ What jp4 1.0 does **not** cover:
   envelope under sustained PacketIn load (>10k pps) has not been
   measured. Run a load test before relying on jp4 in high-throughput
   paths.
-- **Stream messages beyond PacketIn / MasterArbitrationUpdate** —
-  Digest and IdleTimeout notifications are dropped at the inbound
-  parser today; typed handlers are v1.x roadmap.
 - **Other entity-type reads** — counters, meters, registers, action
   profiles, multicast groups, packet-replication. v1.x roadmap.
 - **Tofino-specific `DeviceConfig`** — currently use

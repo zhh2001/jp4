@@ -8,6 +8,103 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 (future v1.x work tracked in the Roadmap section)
 
+## [1.3.0] — 2026-05-14
+
+v1.3 is a SemVer-minor addition over v1.2; the v1.2 public surface
+is unchanged. See [`docs/migration-1.2-to-1.3.md`](docs/migration-1.2-to-1.3.md)
+for usage examples of each new method. The v1.3 release completes the
+stream-message dispatch family: a P4Runtime device's inbound
+DigestList and IdleTimeoutNotification arms now have typed event
+records, listener APIs, and the corresponding control-plane enable
+surface, making both feature families end-to-end usable against a
+real BMv2 device.
+
+### Added
+
+- **`DigestEvent` record** (commit `c5ed6b1`) — typed value carrying
+  the resolved digest name, ack-protocol list id, an immutable list
+  of raw per-entry payload bytes, a wall-clock timestamp, and the
+  numeric digest id. Delivered by the new
+  `P4Switch.onDigest(Consumer<DigestEvent>)` listener; each entry in
+  the `data` list is the serialised form of one `p4.v1.P4Data`
+  message that consumers decode through `P4Data.parseFrom` if they
+  want a typed view.
+- **`IdleTimeoutEvent` record** (commit `c5ed6b1`) — typed value
+  carrying an immutable list of `TableEntry`s that idled out and a
+  wall-clock timestamp. The list preserves the wire shape directly,
+  so a single notification can span multiple tables and the
+  library does not regroup by `table_id`.
+- **`P4Info.digestNameById(int)` and `digestIdByName(String)`
+  accessors** (commits `252990b`, `617f5bb`) — paired forward and
+  reverse index of digest extern declarations from P4Info, populated
+  in one parse-loop alongside the existing
+  `tableInfoById` / `actionInfoById` / `packetInFieldById` family.
+  Both return null when the name or id is unknown, matching the
+  lookup-fail-equals-null convention shared across the existing
+  reverse-id accessors.
+- **`P4Switch.onDigest(Consumer<DigestEvent>)`** (commit `3d4e91e`)
+  — single replaceable listener for inbound `DigestList` stream
+  messages, ack-first by design: the dispatch path issues a
+  `DigestListAck` for every received list unconditionally — before
+  any drop check or listener delivery — so the device's spec-defined
+  `ack_timeout_ns` suppression window is never entered when the
+  pipeline is unbound, when no listener is registered, or when
+  P4Info has no digest with the received id. Eagerly requires a
+  bound pipeline at registration so the silent-drop trap that would
+  otherwise apply is caught at the call site.
+- **`DigestConfig` record + `P4Switch.enableDigest(String,
+  DigestConfig)` / `enableDigestAsync`** (commit `617f5bb`, refined
+  in `85c8744`) — the control-plane enable surface for digest
+  emission. The record carries the three knobs the P4Runtime
+  `DigestEntry.Config` defines: `max_timeout_ns`, `max_list_size`,
+  and `ack_timeout_ns`; the method writes a `DigestEntry` update
+  through the same outbound dispatch path that backs
+  `insert / modify`. Without this call the device emits no
+  `DigestList` even if `onDigest` is registered; the pair is
+  required for the dispatch family to actually surface traffic.
+- **`P4Switch.onIdleTimeout(Consumer<IdleTimeoutEvent>)`** (commit
+  `e7a54a9`) — single replaceable listener for
+  `IdleTimeoutNotification`. The dispatch path reverse-parses each
+  wire `TableEntry` through `EntryProto.fromProto`, the same parser
+  the Read RPC uses. An entry on an action-profile or selector
+  table is rejected by that parser today; the dispatch helper
+  catches the exception, WARN-logs the drop, and swallows the whole
+  notification rather than delivering a partial event — matching
+  the per-message fail-open posture `dispatchPacketIn` uses for
+  unparseable inbound packets. Unlike `onDigest`, no outbound ack
+  is sent: `IdleTimeoutNotification` has no corresponding
+  `StreamMessageRequest` arm per the P4Runtime spec.
+- **`TableEntry.idleTimeoutNs()` accessor +
+  `TableEntryBuilder.idleTimeoutNs(long)` setter +
+  `ActionBuilder.idleTimeoutNs(long)` passthrough** (commit
+  `5d5bd28`) — the control-plane enable surface for idle expiration.
+  Setting the value to a positive number opts a table entry into
+  idle-timeout aging on devices whose P4 program declared the
+  containing table with idle-timeout support; the device fires an
+  `IdleTimeoutNotification` for the entry once it has not been hit
+  within the configured window. The default `0` matches the
+  v1.0 / v1.1 / v1.2 behaviour and the protobuf wire encoding then
+  omits the field. `EntryProto.toProto` writes the field
+  conditionally on `> 0`, mirroring the existing `setPriority`
+  convention; `EntryProto.fromProto` round-trips it back onto
+  the builder so a Read response carries the value forward.
+- **BMv2 integration tests for the new dispatch and enable
+  surfaces** (commit `85c8744`) — a dedicated `digest_idle.p4`
+  fixture declares one digest extern and one exact-match table with
+  idle-timeout support; `DigestIntegrationTest` and
+  `IdleTimeoutIntegrationTest` drive a real BMv2 instance through
+  the full enable + dispatch loop and assert the device emits
+  `DigestList` and `IdleTimeoutNotification` for the configured
+  paths. The same commit also corrects two implementation details
+  surfaced by the integration tests: `enableDigestAsync` issues
+  the `DigestEntry` write with `Update.Type.INSERT` rather than
+  `MODIFY` (BMv2 rejects `MODIFY` for a digest that has not yet
+  been INSERTed), and the new P4 fixture uses the standalone
+  `support_timeout = true` table property rather than the
+  `@support_timeout(true)` annotation so p4c emits
+  `idle_timeout_behavior = NOTIFY_CONTROL_PLANE` in the P4Info
+  (BMv2 reads the typed field rather than the annotation).
+
 ## [1.2.0] — 2026-05-11
 
 v1.2 is a SemVer-minor addition over v1.1; the v1.1 public surface
@@ -270,10 +367,6 @@ These are tracked for v1.x point releases without committed dates:
 - `DeviceConfig.Tofino` variant alongside `Bmv2` and `Raw` —
   community-driven; no internal commitment, contributions welcome
   with hardware-validated test results.
-- Digest and IdleTimeout stream-message handlers (P4Runtime spec
-  §7 / §11.4) — currently dropped at the inbound parser; v1.x will
-  add typed subscription APIs matching the existing `onPacketIn` /
-  `onMastershipChange` shape.
 - Examples-CI assertion strengthening — current `examples-l2` /
   `examples-lb` / `examples-monitor` jobs grep a small set of
   distinctive lines from each example's stdout. v1.x should diff
