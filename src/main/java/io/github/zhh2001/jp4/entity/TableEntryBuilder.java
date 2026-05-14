@@ -36,6 +36,7 @@ public final class TableEntryBuilder {
     private final Map<String, Match> matchByField = new LinkedHashMap<>();
     private ActionInstance action;
     private int priority;
+    private long idleTimeoutNs;
 
     TableEntryBuilder(String tableName) {
         this.tableName = tableName;
@@ -95,6 +96,30 @@ public final class TableEntryBuilder {
     }
 
     /**
+     * Sets the entry's idle timeout, in nanoseconds. {@code 0} (the default)
+     * leaves idle expiration disabled — the v1.0 / v1.1 / v1.2 behaviour
+     * which the wire encoding then omits from the protobuf. A positive
+     * value opts the entry into idle-timeout aging on devices whose P4
+     * program declared the containing table with idle-timeout support;
+     * the device will emit an {@code IdleTimeoutNotification} for the
+     * entry once it has not been hit for the configured window. Negative
+     * values are rejected with {@link IllegalArgumentException}.
+     *
+     * @param ns the idle timeout in nanoseconds; must be {@code >= 0}
+     * @return this builder, for chaining
+     * @throws IllegalArgumentException if {@code ns} is negative
+     * @since 1.3.0
+     */
+    public TableEntryBuilder idleTimeoutNs(long ns) {
+        if (ns < 0L) {
+            throw new IllegalArgumentException(
+                    "idleTimeoutNs must be >= 0, got " + ns);
+        }
+        this.idleTimeoutNs = ns;
+        return this;
+    }
+
+    /**
      * Builds the table entry. The {@code action} step is optional: entries built without
      * an action are valid for {@code delete} but will be rejected by {@code insert} and
      * {@code modify} at the operation site (with a clear error message at runtime).
@@ -104,7 +129,7 @@ public final class TableEntryBuilder {
      */
     public TableEntry build() {
         Objects.requireNonNull(tableName, "tableName");
-        return new TableEntry(tableName, matchByField, action, priority);
+        return new TableEntry(tableName, matchByField, action, priority, idleTimeoutNs);
     }
 
     String tableName() {

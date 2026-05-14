@@ -242,4 +242,49 @@ class TableEntryTest {
         assertThrows(NullPointerException.class,
                 () -> TableEntry.in("t").action(null));
     }
+
+    /**
+     * Entries built without an explicit {@code idleTimeoutNs} setter call
+     * report {@code 0}, which the {@code EntryProto.toProto} path treats
+     * as "no idle timeout configured" and omits from the wire encoding —
+     * preserving the v1.0 / v1.1 / v1.2 behaviour for callers who never
+     * touch the new setter.
+     */
+    @Test
+    void idleTimeoutNsDefaultsToZero() {
+        TableEntry e = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new byte[]{10, 0, 0, 0})
+                .action("MyIngress.forward")
+                .param("port", 1)
+                .build();
+        assertEquals(0L, e.idleTimeoutNs());
+    }
+
+    /**
+     * A positive value passed to the builder's {@code idleTimeoutNs}
+     * setter propagates to the built entry's accessor unchanged.
+     */
+    @Test
+    void idleTimeoutNsSetterPropagatesToEntry() {
+        TableEntry e = TableEntry.in("MyIngress.ipv4_lpm")
+                .match("hdr.ipv4.dstAddr", new byte[]{10, 0, 0, 0})
+                .action("MyIngress.forward")
+                .param("port", 1)
+                .idleTimeoutNs(5_000_000_000L)
+                .build();
+        assertEquals(5_000_000_000L, e.idleTimeoutNs());
+    }
+
+    /**
+     * Negative values are rejected at the builder setter with
+     * {@link IllegalArgumentException}, mirroring the {@code int} and
+     * {@code long} match-value overloads' non-negative posture.
+     */
+    @Test
+    void idleTimeoutNsRejectsNegative() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> TableEntry.in("MyIngress.ipv4_lpm").idleTimeoutNs(-1L));
+        assertTrue(ex.getMessage().contains("idleTimeoutNs"),
+                "expected message to name idleTimeoutNs: " + ex.getMessage());
+    }
 }

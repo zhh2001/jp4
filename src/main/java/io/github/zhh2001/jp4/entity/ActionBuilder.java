@@ -81,6 +81,19 @@ public final class ActionBuilder {
     }
 
     /**
+     * Sets the entry's idle timeout through the parent builder so chains
+     * stay flat after {@code .action(...).param(...)}; delegates to
+     * {@link TableEntryBuilder#idleTimeoutNs(long)} for the actual
+     * validation and storage.
+     *
+     * @since 1.3.0
+     */
+    public ActionBuilder idleTimeoutNs(long ns) {
+        parent.idleTimeoutNs(ns);
+        return this;
+    }
+
+    /**
      * Records the action on the parent builder, then delegates to
      * {@link TableEntryBuilder#build()}.
      */

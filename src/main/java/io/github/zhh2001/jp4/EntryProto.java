@@ -50,6 +50,10 @@ final class EntryProto {
             b.setPriority(entry.priority());
         }
 
+        if (entry.idleTimeoutNs() > 0L) {
+            b.setIdleTimeoutNs(entry.idleTimeoutNs());
+        }
+
         return b.build();
     }
 
@@ -150,6 +154,10 @@ final class EntryProto {
 
         if (proto.getPriority() > 0) {
             builder.priority(proto.getPriority());
+        }
+
+        if (proto.getIdleTimeoutNs() > 0L) {
+            builder.idleTimeoutNs(proto.getIdleTimeoutNs());
         }
 
         if (!proto.hasAction()) {

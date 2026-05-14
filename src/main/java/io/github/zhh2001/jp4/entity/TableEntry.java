@@ -25,15 +25,18 @@ public final class TableEntry {
     private final Map<String, Match> matchByField;
     private final ActionInstance action;
     private final int priority;
+    private final long idleTimeoutNs;
 
     TableEntry(String tableName,
                Map<String, Match> matchByField,
                ActionInstance action,
-               int priority) {
+               int priority,
+               long idleTimeoutNs) {
         this.tableName = Objects.requireNonNull(tableName, "tableName");
         this.matchByField = Map.copyOf(matchByField);
         this.action = action;   // null is valid: delete-only entries
         this.priority = priority;
+        this.idleTimeoutNs = idleTimeoutNs;
     }
 
     /** Starts building a {@code TableEntry} for the named table. */
@@ -80,11 +83,26 @@ public final class TableEntry {
         return priority;
     }
 
+    /**
+     * Idle timeout for this entry, in nanoseconds. {@code 0} (the default)
+     * means the entry has no idle timeout configured and the device will
+     * never expire it through the {@code IdleTimeoutNotification} path. A
+     * positive value enables the entry for idle-timeout aging on devices
+     * whose P4 program declared the containing table with idle-timeout
+     * support; see {@code P4Switch.onIdleTimeout} for the dispatch side.
+     *
+     * @since 1.3.0
+     */
+    public long idleTimeoutNs() {
+        return idleTimeoutNs;
+    }
+
     @Override
     public String toString() {
         return "TableEntry(table=" + tableName
                 + ", matches=" + matchByField
                 + ", action=" + action
-                + ", priority=" + priority + ")";
+                + ", priority=" + priority
+                + ", idleTimeoutNs=" + idleTimeoutNs + ")";
     }
 }
