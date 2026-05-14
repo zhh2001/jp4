@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "io.github.zhh2001"
-version = "1.3.0"
+version = "1.4.0-SNAPSHOT"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
