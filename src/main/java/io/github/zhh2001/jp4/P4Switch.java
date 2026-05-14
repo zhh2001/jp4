@@ -1,5 +1,6 @@
 package io.github.zhh2001.jp4;
 
+import io.github.zhh2001.jp4.entity.DigestConfig;
 import io.github.zhh2001.jp4.entity.DigestEvent;
 import io.github.zhh2001.jp4.entity.DropEvent;
 import io.github.zhh2001.jp4.entity.IdleTimeoutEvent;
@@ -439,6 +440,107 @@ public final class P4Switch implements AutoCloseable {
         Objects.requireNonNull(handler, "handler");
         requirePipelineBound();
         idleTimeoutListener = handler;
+    }
+
+    /**
+     * Enables digest emission for the named digest extern. The P4Runtime
+     * spec models digests as opt-in at the controller: a device will not
+     * emit any {@code DigestList} stream messages for a given
+     * {@code digest_id} until the controller has installed a
+     * {@code DigestEntry} update with the configuration that governs how
+     * the device batches and flushes the data. This method writes that
+     * update through the same write channel as {@code insert} /
+     * {@code modify}, blocking the calling thread until the device
+     * acknowledges the write.
+     *
+     * <p>Resolution: {@code digestName} is looked up in the bound
+     * {@link P4Info} via {@link P4Info#digestIdByName(String)}. An unknown
+     * name surfaces as {@link P4PipelineException}.
+     *
+     * <p>Pipeline-bound requirement: the lookup obviously needs a bound
+     * P4Info. The eager check matches {@link #onDigest} so misuse fails
+     * fast at the call site rather than silently dropping
+     * {@code DigestList} traffic that never arrives.
+     *
+     * <p>P4Runtime {@code Update.Type}: this method uses {@code MODIFY},
+     * which the spec defines as enable-or-reconfigure; the device
+     * tolerates it as both first-enable and subsequent reconfigure of
+     * the same digest. Disabling digest emission (writing an empty
+     * Config) is a v1.x roadmap item — the v1.3 surface only enables.
+     *
+     * @param digestName the fully-qualified P4 name of the digest extern
+     * @param config     the wire-shape configuration (max timeout, list
+     *                   size, ack timeout)
+     * @throws NullPointerException  if {@code digestName} or {@code config} is null
+     * @throws P4PipelineException   if no pipeline is bound or the bound
+     *                               P4Info declares no digest with that name
+     * @throws P4ConnectionException if the switch is closed, broken, or not primary
+     * @since 1.3.0
+     */
+    public void enableDigest(String digestName, DigestConfig config) {
+        awaitWrite(enableDigestAsync(digestName, config));
+    }
+
+    /**
+     * Asynchronous variant of {@link #enableDigest(String, DigestConfig)}:
+     * returns a {@link CompletableFuture} that completes when the device
+     * has acknowledged the {@code DigestEntry} write or fails with the
+     * underlying exception. The synchronous {@link #enableDigest} is
+     * implemented by awaiting this future.
+     *
+     * @since 1.3.0
+     */
+    public CompletableFuture<Void> enableDigestAsync(String digestName, DigestConfig config) {
+        P4ConnectionException gate = writabilityException();
+        if (gate != null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(gate);
+            return f;
+        }
+        Objects.requireNonNull(digestName, "digestName");
+        Objects.requireNonNull(config, "config");
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first"));
+            return f;
+        }
+        Integer digestId = pipe.p4info().digestIdByName(digestName);
+        if (digestId == null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(new P4PipelineException(
+                    "no digest named '" + digestName + "' in P4Info"));
+            return f;
+        }
+        StreamSession sess = session.get();
+        if (sess == null) {
+            CompletableFuture<Void> f = new CompletableFuture<>();
+            f.completeExceptionally(new P4ConnectionException("no active session"));
+            return f;
+        }
+
+        var digestEntry = p4.v1.P4RuntimeOuterClass.DigestEntry.newBuilder()
+                .setDigestId(digestId)
+                .setConfig(p4.v1.P4RuntimeOuterClass.DigestEntry.Config.newBuilder()
+                        .setMaxTimeoutNs(config.maxTimeout().toNanos())
+                        .setMaxListSize(config.maxListSize())
+                        .setAckTimeoutNs(config.ackTimeout().toNanos())
+                        .build())
+                .build();
+        var update = p4.v1.P4RuntimeOuterClass.Update.newBuilder()
+                .setType(p4.v1.P4RuntimeOuterClass.Update.Type.MODIFY)
+                .setEntity(p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                        .setDigestEntry(digestEntry)
+                        .build())
+                .build();
+        var req = p4.v1.P4RuntimeOuterClass.WriteRequest.newBuilder()
+                .setDeviceId(deviceId)
+                .setElectionId(buildElectionUint128())
+                .addUpdates(update)
+                .build();
+
+        return dispatchWrite(req, OperationType.MODIFY, sess);
     }
 
     /**

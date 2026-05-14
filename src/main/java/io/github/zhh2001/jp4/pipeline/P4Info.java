@@ -48,6 +48,7 @@ public final class P4Info {
     private final Map<Integer, PacketMetadataInfo> packetInById;
     private final Map<Integer, PacketMetadataInfo> packetOutById;
     private final Map<Integer, String> digestNamesById;
+    private final Map<String, Integer> digestIdsByName;
 
     private P4Info(P4InfoOuterClass.P4Info proto) {
         this.proto = proto;
@@ -91,10 +92,15 @@ public final class P4Info {
         // type_spec is a future v1.x release, so DigestEvent ships raw bytes
         // and consumers decode through p4.v1.P4Data themselves.
         Map<Integer, String> digests = new HashMap<>(proto.getDigestsCount() * 2);
+        Map<String, Integer> digestsByName = new HashMap<>(proto.getDigestsCount() * 2);
         for (P4InfoOuterClass.Digest d : proto.getDigestsList()) {
-            digests.put(d.getPreamble().getId(), d.getPreamble().getName());
+            int id = d.getPreamble().getId();
+            String name = d.getPreamble().getName();
+            digests.put(id, name);
+            digestsByName.put(name, id);
         }
         this.digestNamesById = Map.copyOf(digests);
+        this.digestIdsByName = Map.copyOf(digestsByName);
     }
 
     private static Map<String, PacketMetadataInfo> indexByName(List<PacketMetadataInfo> list) {
@@ -314,6 +320,25 @@ public final class P4Info {
      */
     public String digestNameById(int id) {
         return digestNamesById.get(id);
+    }
+
+    /**
+     * Reverse lookup of a digest extern by fully-qualified P4 name,
+     * returning its numeric id; {@code null} when no digest with that name
+     * is declared in the bound P4Info. The complement of
+     * {@link #digestNameById(int)}, populated from the same parse loop.
+     * Used by the control plane when issuing a {@code WriteRequest} that
+     * carries a {@code DigestEntry} update, since the wire format
+     * identifies digests by id rather than by name.
+     *
+     * @param name the digest's fully-qualified P4 name
+     * @return the numeric digest id, or {@code null} when unknown
+     * @throws NullPointerException if {@code name} is null
+     * @since 1.3.0
+     */
+    public Integer digestIdByName(String name) {
+        Objects.requireNonNull(name, "name");
+        return digestIdsByName.get(name);
     }
 
     /** Internal access to the underlying parsed protobuf — used by P4Switch when
