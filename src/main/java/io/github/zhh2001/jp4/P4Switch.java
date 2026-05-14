@@ -2,6 +2,7 @@ package io.github.zhh2001.jp4;
 
 import io.github.zhh2001.jp4.entity.DigestEvent;
 import io.github.zhh2001.jp4.entity.DropEvent;
+import io.github.zhh2001.jp4.entity.IdleTimeoutEvent;
 import io.github.zhh2001.jp4.entity.PacketIn;
 import io.github.zhh2001.jp4.entity.PacketOut;
 import io.github.zhh2001.jp4.entity.TableEntry;
@@ -162,6 +163,7 @@ public final class P4Switch implements AutoCloseable {
     private volatile Consumer<MastershipStatus> listener;
     private volatile Consumer<DropEvent> packetDroppedListener;
     private volatile Consumer<DigestEvent> digestListener;
+    private volatile Consumer<IdleTimeoutEvent> idleTimeoutListener;
     private final AtomicReference<ScheduledFuture<?>> nextReconnect = new AtomicReference<>();
     private final AtomicLong reconnectAttempt = new AtomicLong(0L);
     private final AtomicReference<CompletableFuture<MastershipStatus>> reArbWaiter = new AtomicReference<>();
@@ -393,6 +395,50 @@ public final class P4Switch implements AutoCloseable {
         Objects.requireNonNull(handler, "handler");
         requirePipelineBound();
         digestListener = handler;
+    }
+
+    /**
+     * Registers a single listener for inbound {@code IdleTimeoutNotification}
+     * stream messages the device emits when one or more table entries with a
+     * configured {@code idle_timeout_ns} expire without being hit. Replaces
+     * any prior listener (last-write-wins).
+     *
+     * <p>Eager pipeline-bound check: the dispatch path reverse-parses each
+     * wire {@code TableEntry} into a jp4 {@link TableEntry} through the same
+     * {@code EntryProto.fromProto} helper that backs the Read RPC, and that
+     * parser needs the bound {@link P4Info} to resolve table / match-field /
+     * action / param ids to their P4 names. Registering before
+     * {@code bindPipeline} / {@code loadPipeline} throws
+     * {@link P4PipelineException} so the silent-drop trap that would
+     * otherwise apply to every received idle notification is caught at
+     * registration rather than masquerading as no traffic.
+     *
+     * <p>The callback runs on the same dedicated single-threaded executor as
+     * {@link #onMastershipChange}, {@link #onPacketIn},
+     * {@link #onPacketDropped}, and {@link #onDigest}, so a slow listener
+     * holds up subsequent dispatches but never the gRPC inbound thread. A
+     * listener that throws is caught and swallowed on the dispatch side;
+     * user code cannot break the dispatch thread.
+     *
+     * <p>Unlike {@link #onDigest}, the dispatch path sends no outbound ack:
+     * {@code IdleTimeoutNotification} has no corresponding
+     * {@code StreamMessageRequest} arm in the P4Runtime spec — the device
+     * fires and forgets. The dispatch path also drops the whole notification
+     * fail-open if the reverse-parser rejects any of its entries (for
+     * example, an entry on an action-profile or selector table — those are
+     * a separate v1.x roadmap topic), matching the per-message fail-open
+     * posture {@code dispatchPacketIn} already uses for unparseable inbound
+     * packets.
+     *
+     * @param handler the listener; never {@code null}
+     * @throws NullPointerException if {@code handler} is null
+     * @throws P4PipelineException  if no pipeline is bound
+     * @since 1.3.0
+     */
+    public void onIdleTimeout(Consumer<IdleTimeoutEvent> handler) {
+        Objects.requireNonNull(handler, "handler");
+        requirePipelineBound();
+        idleTimeoutListener = handler;
     }
 
     /**
@@ -942,6 +988,75 @@ public final class P4Switch implements AutoCloseable {
                 data,
                 Instant.ofEpochSecond(0, proto.getTimestamp()),
                 proto.getDigestId());
+    }
+
+    /**
+     * Package-private, called by {@link InboundStreamHandler#onNext} on the gRPC
+     * inbound thread for each {@code IdleTimeoutNotification} stream message.
+     * No outbound ack is sent — unlike {@link #dispatchDigest}, the spec defines
+     * no {@code StreamMessageRequest} arm for idle notifications.
+     *
+     * <p>The wire {@code TableEntry} list is reverse-parsed through
+     * {@code EntryProto.fromProto}, the same path the Read RPC uses. A
+     * single problematic entry — most commonly an action-profile or selector
+     * entry whose {@code TableAction} oneof is in a case the v1.3 reverse
+     * parser does not yet handle — surfaces as {@link P4PipelineException};
+     * the dispatch helper catches that exception, logs at WARN, and drops
+     * the whole notification fail-open. This matches the per-message
+     * fail-open posture {@code dispatchPacketIn} uses for unparseable
+     * inbound packets and preserves the contract that every delivered
+     * {@link IdleTimeoutEvent} carries the wire shape directly.
+     *
+     * <p>Listener-thrown {@link RuntimeException}s are swallowed; a closing
+     * executor drops the dispatch cleanly.
+     */
+    void dispatchIdleTimeout(p4.v1.P4RuntimeOuterClass.IdleTimeoutNotification proto) {
+        if (closing.get()) return;
+
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            LOG.warn("dropping IdleTimeoutNotification on device {}: no pipeline bound",
+                    deviceId);
+            return;
+        }
+        Consumer<IdleTimeoutEvent> l = idleTimeoutListener;
+        if (l == null) return;
+
+        List<TableEntry> entries;
+        try {
+            entries = buildIdleTimeoutEntries(proto, pipe.p4info());
+        } catch (P4PipelineException pe) {
+            LOG.warn("dropping IdleTimeoutNotification on device {}: {}",
+                    deviceId, pe.getMessage());
+            return;
+        }
+        IdleTimeoutEvent event = new IdleTimeoutEvent(
+                entries,
+                Instant.ofEpochSecond(0, proto.getTimestamp()));
+        try {
+            callbackExecutor.execute(() -> {
+                try { l.accept(event); }
+                catch (RuntimeException ignored) { /* user code; don't kill the thread */ }
+            });
+        } catch (RejectedExecutionException ignored) {
+            // executor shut down (closing); event drops cleanly.
+        }
+    }
+
+    /**
+     * Maps each wire {@code TableEntry} in an {@code IdleTimeoutNotification}
+     * to a jp4 {@link TableEntry} through the same reverse-parser that backs
+     * the Read RPC. Throws {@link P4PipelineException} as soon as one entry
+     * fails to parse — the dispatch caller catches that and drops the whole
+     * notification rather than delivering a partial event.
+     */
+    private static List<TableEntry> buildIdleTimeoutEntries(
+            p4.v1.P4RuntimeOuterClass.IdleTimeoutNotification proto, P4Info p4info) {
+        List<TableEntry> out = new ArrayList<>(proto.getTableEntryCount());
+        for (p4.v1.P4RuntimeOuterClass.TableEntry te : proto.getTableEntryList()) {
+            out.add(EntryProto.fromProto(te, p4info));
+        }
+        return out;
     }
 
     /**

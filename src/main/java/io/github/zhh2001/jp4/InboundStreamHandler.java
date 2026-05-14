@@ -89,7 +89,17 @@ final class InboundStreamHandler implements StreamObserver<StreamMessageResponse
             local.dispatchDigest(msg.getDigest());
             return;
         }
-        // IdleTimeout messages: ignored pending dispatchIdleTimeout (next sub-phase).
+        if (msg.hasIdleTimeoutNotification()) {
+            P4Switch local = sw;
+            if (local == null || local.currentGeneration() != generation) {
+                return;     // stale or pre-attach: drop
+            }
+            local.dispatchIdleTimeout(msg.getIdleTimeoutNotification());
+            return;
+        }
+        // The remaining StreamMessageResponse oneof arms — "other" (google.protobuf.Any)
+        // and the asynchronous "error" detail — are dropped here; surfacing them is
+        // future v1.x work.
     }
 
     @Override
