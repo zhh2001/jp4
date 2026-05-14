@@ -529,7 +529,7 @@ public final class P4Switch implements AutoCloseable {
                         .build())
                 .build();
         var update = p4.v1.P4RuntimeOuterClass.Update.newBuilder()
-                .setType(p4.v1.P4RuntimeOuterClass.Update.Type.MODIFY)
+                .setType(p4.v1.P4RuntimeOuterClass.Update.Type.INSERT)
                 .setEntity(p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
                         .setDigestEntry(digestEntry)
                         .build())
@@ -540,7 +540,7 @@ public final class P4Switch implements AutoCloseable {
                 .addUpdates(update)
                 .build();
 
-        return dispatchWrite(req, OperationType.MODIFY, sess);
+        return dispatchWrite(req, OperationType.INSERT, sess);
     }
 
     /**

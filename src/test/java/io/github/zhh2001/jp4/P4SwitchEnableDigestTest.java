@@ -99,7 +99,7 @@ class P4SwitchEnableDigestTest {
         assertNotNull(captured, "fake server should have captured a WriteRequest");
         assertEquals(1, captured.getUpdatesCount());
         Update u = captured.getUpdates(0);
-        assertEquals(Update.Type.MODIFY, u.getType());
+        assertEquals(Update.Type.INSERT, u.getType());
         assertTrue(u.getEntity().hasDigestEntry(),
                 "Entity should carry digest_entry; got " + u.getEntity().getEntityCase());
 
