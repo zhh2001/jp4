@@ -198,4 +198,130 @@ class P4InfoTest {
         P4Info empty = P4Info.fromBytes(emptyBytes);
         assertNull(empty.digestNameById(0x01000001), "no digest declared in empty P4Info");
     }
+
+    @Test
+    void counterLookupResolvesByNameAndId() {
+        int counterId = 0x0c000001;
+        String counterName = "MyIngress.pkt_counter";
+        var proto = p4.config.v1.P4InfoOuterClass.P4Info.newBuilder()
+                .addCounters(p4.config.v1.P4InfoOuterClass.Counter.newBuilder()
+                        .setPreamble(p4.config.v1.P4InfoOuterClass.Preamble.newBuilder()
+                                .setId(counterId).setName(counterName).build())
+                        .setSpec(p4.config.v1.P4InfoOuterClass.CounterSpec.newBuilder()
+                                .setUnit(p4.config.v1.P4InfoOuterClass.CounterSpec.Unit.BOTH)
+                                .build())
+                        .setSize(1024)
+                        .build())
+                .build();
+        P4Info info = P4Info.fromBytes(proto.toByteArray());
+        CounterInfo c = info.counter(counterName);
+        assertEquals(counterName, c.name());
+        assertEquals(counterId, c.id());
+        assertEquals(CounterInfo.Unit.BOTH, c.unit());
+        assertEquals(1024L, c.size());
+        assertSame(c, info.counterById(counterId),
+                "counterById should return the same CounterInfo instance");
+        assertEquals(List.of(counterName), info.counterNames());
+    }
+
+    @Test
+    void meterLookupResolvesByNameAndId() {
+        int meterId = 0x12000001;
+        String meterName = "MyIngress.rate_meter";
+        var proto = p4.config.v1.P4InfoOuterClass.P4Info.newBuilder()
+                .addMeters(p4.config.v1.P4InfoOuterClass.Meter.newBuilder()
+                        .setPreamble(p4.config.v1.P4InfoOuterClass.Preamble.newBuilder()
+                                .setId(meterId).setName(meterName).build())
+                        .setSpec(p4.config.v1.P4InfoOuterClass.MeterSpec.newBuilder()
+                                .setUnit(p4.config.v1.P4InfoOuterClass.MeterSpec.Unit.PACKETS)
+                                .build())
+                        .setSize(256)
+                        .build())
+                .build();
+        P4Info info = P4Info.fromBytes(proto.toByteArray());
+        MeterInfo m = info.meter(meterName);
+        assertEquals(meterName, m.name());
+        assertEquals(meterId, m.id());
+        assertEquals(MeterInfo.Unit.PACKETS, m.unit());
+        assertEquals(256L, m.size());
+        assertSame(m, info.meterById(meterId));
+        assertEquals(List.of(meterName), info.meterNames());
+    }
+
+    @Test
+    void registerLookupResolvesByNameAndId() {
+        int registerId = 0x10000001;
+        String registerName = "MyIngress.flow_counters";
+        var proto = p4.config.v1.P4InfoOuterClass.P4Info.newBuilder()
+                .addRegisters(p4.config.v1.P4InfoOuterClass.Register.newBuilder()
+                        .setPreamble(p4.config.v1.P4InfoOuterClass.Preamble.newBuilder()
+                                .setId(registerId).setName(registerName).build())
+                        .setSize(512)
+                        .build())
+                .build();
+        P4Info info = P4Info.fromBytes(proto.toByteArray());
+        RegisterInfo r = info.register(registerName);
+        assertEquals(registerName, r.name());
+        assertEquals(registerId, r.id());
+        assertEquals(512L, r.size());
+        assertSame(r, info.registerById(registerId));
+        assertEquals(List.of(registerName), info.registerNames());
+    }
+
+    @Test
+    void actionProfileLookupResolvesByNameAndId() {
+        int profileId = 0x11000001;
+        String profileName = "MyIngress.ecmp_profile";
+        var proto = p4.config.v1.P4InfoOuterClass.P4Info.newBuilder()
+                .addActionProfiles(p4.config.v1.P4InfoOuterClass.ActionProfile.newBuilder()
+                        .setPreamble(p4.config.v1.P4InfoOuterClass.Preamble.newBuilder()
+                                .setId(profileId).setName(profileName).build())
+                        .setWithSelector(true)
+                        .setSize(64)
+                        .setMaxGroupSize(8)
+                        .addTableIds(0x03000001)
+                        .addTableIds(0x03000002)
+                        .build())
+                .build();
+        P4Info info = P4Info.fromBytes(proto.toByteArray());
+        ActionProfileInfo ap = info.actionProfile(profileName);
+        assertEquals(profileName, ap.name());
+        assertEquals(profileId, ap.id());
+        assertTrue(ap.withSelector(), "selector flag should round-trip");
+        assertEquals(64L, ap.size());
+        assertEquals(8, ap.maxGroupSize());
+        assertTrue(ap.tableIds().contains(0x03000001));
+        assertTrue(ap.tableIds().contains(0x03000002));
+        assertEquals(2, ap.tableIds().size());
+        assertSame(ap, info.actionProfileById(profileId));
+        assertEquals(List.of(profileName), info.actionProfileNames());
+    }
+
+    @Test
+    void unknownEntityNameThrowsWithKnownList() {
+        // Use basic.p4info.txtpb: no counters/meters/registers/actionProfiles
+        // declared, so any lookup by name throws with an empty known-list.
+        P4Info info = P4Info.fromText(TXT);
+        for (var probe : new Runnable[]{
+                () -> info.counter("nope"),
+                () -> info.meter("nope"),
+                () -> info.register("nope"),
+                () -> info.actionProfile("nope"),
+        }) {
+            P4PipelineException ex = assertThrows(P4PipelineException.class, probe::run);
+            assertTrue(ex.getMessage().contains("nope"),
+                    "expected message to name the queried entity 'nope': " + ex.getMessage());
+            assertTrue(ex.getMessage().contains("known:"),
+                    "expected message to carry a known-list hint: " + ex.getMessage());
+        }
+    }
+
+    @Test
+    void unknownEntityIdReturnsNull() {
+        P4Info info = P4Info.fromText(TXT);
+        assertNull(info.counterById(999_999), "unknown counter id");
+        assertNull(info.meterById(999_999), "unknown meter id");
+        assertNull(info.registerById(999_999), "unknown register id");
+        assertNull(info.actionProfileById(999_999), "unknown action profile id");
+    }
 }

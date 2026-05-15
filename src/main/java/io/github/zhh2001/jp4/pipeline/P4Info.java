@@ -49,6 +49,14 @@ public final class P4Info {
     private final Map<Integer, PacketMetadataInfo> packetOutById;
     private final Map<Integer, String> digestNamesById;
     private final Map<String, Integer> digestIdsByName;
+    private final Map<String, CounterInfo> countersByName;
+    private final Map<Integer, CounterInfo> countersById;
+    private final Map<String, MeterInfo> metersByName;
+    private final Map<Integer, MeterInfo> metersById;
+    private final Map<String, RegisterInfo> registersByName;
+    private final Map<Integer, RegisterInfo> registersById;
+    private final Map<String, ActionProfileInfo> actionProfilesByName;
+    private final Map<Integer, ActionProfileInfo> actionProfilesById;
 
     private P4Info(P4InfoOuterClass.P4Info proto) {
         this.proto = proto;
@@ -101,6 +109,86 @@ public final class P4Info {
         }
         this.digestNamesById = Map.copyOf(digests);
         this.digestIdsByName = Map.copyOf(digestsByName);
+
+        // Counters: name + id index. Unit is the proto's CounterSpec.Unit enum
+        // mapped onto jp4's local enum; size is the cell count.
+        Map<String, CounterInfo> cByName = new HashMap<>(proto.getCountersCount() * 2);
+        Map<Integer, CounterInfo> cById = new HashMap<>(proto.getCountersCount() * 2);
+        for (P4InfoOuterClass.Counter c : proto.getCountersList()) {
+            String name = c.getPreamble().getName();
+            int id = c.getPreamble().getId();
+            CounterInfo.Unit unit = mapCounterUnit(c.getSpec().getUnit());
+            CounterInfo info = new CounterInfo(name, id, unit, c.getSize());
+            cByName.put(name, info);
+            cById.put(id, info);
+        }
+        this.countersByName = Map.copyOf(cByName);
+        this.countersById   = Map.copyOf(cById);
+
+        // Meters: same shape as counters.
+        Map<String, MeterInfo> mByName = new HashMap<>(proto.getMetersCount() * 2);
+        Map<Integer, MeterInfo> mById = new HashMap<>(proto.getMetersCount() * 2);
+        for (P4InfoOuterClass.Meter m : proto.getMetersList()) {
+            String name = m.getPreamble().getName();
+            int id = m.getPreamble().getId();
+            MeterInfo.Unit unit = mapMeterUnit(m.getSpec().getUnit());
+            MeterInfo info = new MeterInfo(name, id, unit, m.getSize());
+            mByName.put(name, info);
+            mById.put(id, info);
+        }
+        this.metersByName = Map.copyOf(mByName);
+        this.metersById   = Map.copyOf(mById);
+
+        // Registers: only name / id / size are surfaced; the per-cell
+        // P4DataTypeSpec is deferred per the raw-bytes convention DigestEvent
+        // already follows.
+        Map<String, RegisterInfo> rByName = new HashMap<>(proto.getRegistersCount() * 2);
+        Map<Integer, RegisterInfo> rById = new HashMap<>(proto.getRegistersCount() * 2);
+        for (P4InfoOuterClass.Register r : proto.getRegistersList()) {
+            String name = r.getPreamble().getName();
+            int id = r.getPreamble().getId();
+            RegisterInfo info = new RegisterInfo(name, id, r.getSize());
+            rByName.put(name, info);
+            rById.put(id, info);
+        }
+        this.registersByName = Map.copyOf(rByName);
+        this.registersById   = Map.copyOf(rById);
+
+        // Action profiles: include the selector flag, max group size, and the
+        // set of tables sharing the profile so the read-side helpers can
+        // resolve group references.
+        Map<String, ActionProfileInfo> apByName = new HashMap<>(proto.getActionProfilesCount() * 2);
+        Map<Integer, ActionProfileInfo> apById = new HashMap<>(proto.getActionProfilesCount() * 2);
+        for (P4InfoOuterClass.ActionProfile ap : proto.getActionProfilesList()) {
+            String name = ap.getPreamble().getName();
+            int id = ap.getPreamble().getId();
+            Set<Integer> tables = new HashSet<>(ap.getTableIdsCount() * 2);
+            for (int tid : ap.getTableIdsList()) tables.add(tid);
+            ActionProfileInfo info = new ActionProfileInfo(
+                    name, id, ap.getWithSelector(),
+                    ap.getSize(), ap.getMaxGroupSize(), tables);
+            apByName.put(name, info);
+            apById.put(id, info);
+        }
+        this.actionProfilesByName = Map.copyOf(apByName);
+        this.actionProfilesById   = Map.copyOf(apById);
+    }
+
+    private static CounterInfo.Unit mapCounterUnit(P4InfoOuterClass.CounterSpec.Unit u) {
+        return switch (u) {
+            case BYTES                  -> CounterInfo.Unit.BYTES;
+            case PACKETS                -> CounterInfo.Unit.PACKETS;
+            case BOTH                   -> CounterInfo.Unit.BOTH;
+            case UNSPECIFIED, UNRECOGNIZED -> CounterInfo.Unit.UNSPECIFIED;
+        };
+    }
+
+    private static MeterInfo.Unit mapMeterUnit(P4InfoOuterClass.MeterSpec.Unit u) {
+        return switch (u) {
+            case BYTES                  -> MeterInfo.Unit.BYTES;
+            case PACKETS                -> MeterInfo.Unit.PACKETS;
+            case UNSPECIFIED, UNRECOGNIZED -> MeterInfo.Unit.UNSPECIFIED;
+        };
     }
 
     private static Map<String, PacketMetadataInfo> indexByName(List<PacketMetadataInfo> list) {
@@ -339,6 +427,130 @@ public final class P4Info {
     public Integer digestIdByName(String name) {
         Objects.requireNonNull(name, "name");
         return digestIdsByName.get(name);
+    }
+
+    /**
+     * Looks up a counter by its fully-qualified name (e.g.
+     * {@code "MyIngress.pkt_counter"}). Throws {@link P4PipelineException} if
+     * no such counter exists in the bound P4Info — surfaces typos at the call
+     * site instead of returning {@code null}. The thrown message lists the
+     * known counter names for diagnostic context.
+     *
+     * @since 1.4.0
+     */
+    public CounterInfo counter(String name) {
+        Objects.requireNonNull(name, "name");
+        CounterInfo c = countersByName.get(name);
+        if (c == null) {
+            throw new P4PipelineException(
+                    "no counter named '" + name + "' in P4Info (known: "
+                            + countersByName.keySet() + ")");
+        }
+        return c;
+    }
+
+    /**
+     * Reverse lookup: returns the {@link CounterInfo} for a given numeric
+     * counter id, or {@code null} when the bound P4Info declares no counter
+     * with that id. Mirrors the {@link #tableInfoById(int)} convention.
+     *
+     * @since 1.4.0
+     */
+    public CounterInfo counterById(int id) {
+        return countersById.get(id);
+    }
+
+    /** Counter names declared in the bound P4Info, as an immutable list.
+     *  @since 1.4.0 */
+    public List<String> counterNames() {
+        return List.copyOf(countersByName.keySet());
+    }
+
+    /**
+     * Looks up a meter by its fully-qualified name. Throws
+     * {@link P4PipelineException} with a known-list on miss.
+     *
+     * @since 1.4.0
+     */
+    public MeterInfo meter(String name) {
+        Objects.requireNonNull(name, "name");
+        MeterInfo m = metersByName.get(name);
+        if (m == null) {
+            throw new P4PipelineException(
+                    "no meter named '" + name + "' in P4Info (known: "
+                            + metersByName.keySet() + ")");
+        }
+        return m;
+    }
+
+    /** Reverse lookup of a meter by id; {@code null} on miss.
+     *  @since 1.4.0 */
+    public MeterInfo meterById(int id) {
+        return metersById.get(id);
+    }
+
+    /** Meter names declared in the bound P4Info, as an immutable list.
+     *  @since 1.4.0 */
+    public List<String> meterNames() {
+        return List.copyOf(metersByName.keySet());
+    }
+
+    /**
+     * Looks up a register by its fully-qualified name. Throws
+     * {@link P4PipelineException} with a known-list on miss.
+     *
+     * @since 1.4.0
+     */
+    public RegisterInfo register(String name) {
+        Objects.requireNonNull(name, "name");
+        RegisterInfo r = registersByName.get(name);
+        if (r == null) {
+            throw new P4PipelineException(
+                    "no register named '" + name + "' in P4Info (known: "
+                            + registersByName.keySet() + ")");
+        }
+        return r;
+    }
+
+    /** Reverse lookup of a register by id; {@code null} on miss.
+     *  @since 1.4.0 */
+    public RegisterInfo registerById(int id) {
+        return registersById.get(id);
+    }
+
+    /** Register names declared in the bound P4Info, as an immutable list.
+     *  @since 1.4.0 */
+    public List<String> registerNames() {
+        return List.copyOf(registersByName.keySet());
+    }
+
+    /**
+     * Looks up an action profile by its fully-qualified name. Throws
+     * {@link P4PipelineException} with a known-list on miss.
+     *
+     * @since 1.4.0
+     */
+    public ActionProfileInfo actionProfile(String name) {
+        Objects.requireNonNull(name, "name");
+        ActionProfileInfo ap = actionProfilesByName.get(name);
+        if (ap == null) {
+            throw new P4PipelineException(
+                    "no action profile named '" + name + "' in P4Info (known: "
+                            + actionProfilesByName.keySet() + ")");
+        }
+        return ap;
+    }
+
+    /** Reverse lookup of an action profile by id; {@code null} on miss.
+     *  @since 1.4.0 */
+    public ActionProfileInfo actionProfileById(int id) {
+        return actionProfilesById.get(id);
+    }
+
+    /** Action profile names declared in the bound P4Info, as an immutable list.
+     *  @since 1.4.0 */
+    public List<String> actionProfileNames() {
+        return List.copyOf(actionProfilesByName.keySet());
     }
 
     /** Internal access to the underlying parsed protobuf — used by P4Switch when
