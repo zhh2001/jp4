@@ -4,6 +4,7 @@ import io.github.zhh2001.jp4.entity.ActionInstance;
 import io.github.zhh2001.jp4.entity.ActionProfileGroup;
 import io.github.zhh2001.jp4.entity.ActionProfileMember;
 import io.github.zhh2001.jp4.entity.BackupReplica;
+import io.github.zhh2001.jp4.entity.CloneSessionEntry;
 import io.github.zhh2001.jp4.entity.CounterData;
 import io.github.zhh2001.jp4.entity.CounterEntry;
 import io.github.zhh2001.jp4.entity.DigestConfig;
@@ -961,6 +962,36 @@ public final class P4Switch implements AutoCloseable {
                     "no pipeline bound; call bindPipeline() or loadPipeline() first");
         }
         return new MulticastGroupReadQueryImpl(pipe);
+    }
+
+    /**
+     * Returns a builder for a P4Runtime {@code Read} request against the
+     * clone sessions programmed on the device's packet replication engine.
+     * Call a terminal on the returned query to dispatch the read.
+     * Optionally narrow with {@link CloneSessionReadQuery#sessionId(long)}
+     * (server-side filter via the wire {@code session_id} field) or
+     * {@link CloneSessionReadQuery#where(java.util.function.Predicate)}
+     * (client-side filter applied to results after fetch).
+     *
+     * <p>Like {@link #readMulticastGroup()}, this method takes no P4
+     * name — the packet replication engine is program-agnostic and
+     * clone sessions are addressed by controller-assigned numeric id
+     * only. The pipeline-bound gate still applies so the call site
+     * fails loudly if the controller has not yet bound a P4 pipeline.
+     *
+     * @throws P4ConnectionException if the switch is closed or the stream is broken
+     * @throws P4PipelineException   if no pipeline is bound
+     * @since 1.5.0
+     */
+    public CloneSessionReadQuery readCloneSession() {
+        P4ConnectionException gate = readabilityException();
+        if (gate != null) throw gate;
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
+        return new CloneSessionReadQueryImpl(pipe);
     }
 
     /**
@@ -3811,6 +3842,256 @@ public final class P4Switch implements AutoCloseable {
             if (all.size() == 1) return Optional.of(all.get(0));
             throw new P4OperationException(
                     "expected at most one multicast group entry, got " + all.size(),
+                    OperationType.READ,
+                    ErrorCode.UNKNOWN,
+                    List.of());
+        }
+    }
+
+    /**
+     * Clone-session-read counterpart of {@link MulticastGroupReadQueryImpl}.
+     * Builds a {@code ReadRequest} that targets the device's packet
+     * replication engine (optionally narrowed to one clone session by
+     * id), dispatches it through the outbound executor, and parses
+     * each response Entity into a {@link CloneSessionEntry} with its
+     * {@link Replica} list reused unchanged from the multicast-group
+     * read path.
+     */
+    private final class CloneSessionReadQueryImpl implements CloneSessionReadQuery {
+
+        private final Pipeline pipe;
+        private final List<Predicate<? super CloneSessionEntry>> filters = new ArrayList<>();
+        private Long sessionIdFilter;
+
+        CloneSessionReadQueryImpl(Pipeline pipe) {
+            this.pipe = pipe;
+        }
+
+        @Override
+        public CloneSessionReadQuery sessionId(long sessionId) {
+            this.sessionIdFilter = sessionId;
+            return this;
+        }
+
+        @Override
+        public CloneSessionReadQuery where(Predicate<? super CloneSessionEntry> filter) {
+            Objects.requireNonNull(filter, "filter");
+            filters.add(filter);
+            return this;
+        }
+
+        private boolean accept(CloneSessionEntry e) {
+            for (Predicate<? super CloneSessionEntry> p : filters) {
+                if (!p.test(e)) return false;
+            }
+            return true;
+        }
+
+        @Override
+        public List<CloneSessionEntry> all() {
+            return awaitRead(allAsync());
+        }
+
+        @Override
+        public Optional<CloneSessionEntry> one() {
+            return collapseToOne(all());
+        }
+
+        @Override
+        public CompletableFuture<List<CloneSessionEntry>> allAsync() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) {
+                CompletableFuture<List<CloneSessionEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(gate);
+                return f;
+            }
+            StreamSession sess = session.get();
+            if (sess == null) {
+                CompletableFuture<List<CloneSessionEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(new P4ConnectionException("no active session"));
+                return f;
+            }
+
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+            CompletableFuture<List<CloneSessionEntry>> result = new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it =
+                                P4RuntimeGrpc.newBlockingStub(sess.channel)
+                                        .withDeadlineAfter(30, TimeUnit.SECONDS)
+                                        .read(req);
+                        List<CloneSessionEntry> entries = new ArrayList<>();
+                        while (it.hasNext()) {
+                            extractInto(it.next(), entries);
+                        }
+                        List<CloneSessionEntry> filtered;
+                        if (filters.isEmpty()) {
+                            filtered = entries;
+                        } else {
+                            filtered = new ArrayList<>(entries.size());
+                            for (CloneSessionEntry e : entries) {
+                                if (accept(e)) filtered.add(e);
+                            }
+                        }
+                        result.complete(filtered);
+                    } catch (StatusRuntimeException sre) {
+                        result.completeExceptionally(mapReadFailure(sre));
+                    } catch (RuntimeException re) {
+                        result.completeExceptionally(re);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+            }
+            return result;
+        }
+
+        @Override
+        public CompletableFuture<Optional<CloneSessionEntry>> oneAsync() {
+            return allAsync().thenApply(this::collapseToOne);
+        }
+
+        @Override
+        public Stream<CloneSessionEntry> stream() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) throw gate;
+            StreamSession sess = session.get();
+            if (sess == null) throw new P4ConnectionException("no active session");
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+
+            Context.CancellableContext ctx = Context.current().withCancellation();
+            CompletableFuture<Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse>> startFuture =
+                    new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it = ctx.call(() ->
+                                P4RuntimeGrpc.newBlockingStub(sess.channel).read(req));
+                        startFuture.complete(it);
+                    } catch (Exception e) {
+                        startFuture.completeExceptionally(e);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("switch is closed", ree);
+            }
+
+            Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter;
+            try {
+                respIter = startFuture.get(30, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                ctx.cancel(null);
+                throw new P4ConnectionException(
+                        "clone-session read RPC timed out before stream start", te);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                ctx.cancel(null);
+                throw new P4ConnectionException(
+                        "interrupted while starting clone-session read stream", ie);
+            } catch (ExecutionException ee) {
+                ctx.cancel(null);
+                Throwable cause = ee.getCause();
+                if (cause instanceof RuntimeException re) throw re;
+                throw new P4ConnectionException(
+                        "clone-session read RPC failed to start", cause);
+            }
+
+            Iterator<CloneSessionEntry> entryIter = flatten(respIter);
+            Stream<CloneSessionEntry> base = StreamSupport.stream(
+                    Spliterators.spliteratorUnknownSize(entryIter, Spliterator.ORDERED),
+                    /* parallel */ false
+            ).onClose(() -> ctx.cancel(null));
+            return filters.isEmpty() ? base : base.filter(this::accept);
+        }
+
+        // ---------- helpers ------------------------------------------------
+
+        private p4.v1.P4RuntimeOuterClass.ReadRequest buildReadRequest() {
+            var csBuilder = p4.v1.P4RuntimeOuterClass.CloneSessionEntry.newBuilder();
+            if (sessionIdFilter != null) {
+                csBuilder.setSessionId(sessionIdFilter.intValue());
+            }
+            var preBuilder = p4.v1.P4RuntimeOuterClass.PacketReplicationEngineEntry.newBuilder()
+                    .setCloneSessionEntry(csBuilder.build());
+            var entity = p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                    .setPacketReplicationEngineEntry(preBuilder.build())
+                    .build();
+            return p4.v1.P4RuntimeOuterClass.ReadRequest.newBuilder()
+                    .setDeviceId(deviceId)
+                    .addEntities(entity)
+                    .build();
+        }
+
+        private void extractInto(p4.v1.P4RuntimeOuterClass.ReadResponse resp,
+                                 List<CloneSessionEntry> sink) {
+            for (p4.v1.P4RuntimeOuterClass.Entity ent : resp.getEntitiesList()) {
+                if (!ent.hasPacketReplicationEngineEntry()) continue;
+                var pre = ent.getPacketReplicationEngineEntry();
+                if (!pre.hasCloneSessionEntry()) continue;
+                sink.add(parseCloneSessionEntry(pre.getCloneSessionEntry()));
+            }
+        }
+
+        private Iterator<CloneSessionEntry> flatten(
+                Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter) {
+            return new Iterator<>() {
+                private Iterator<CloneSessionEntry> currentBatch = Collections.emptyIterator();
+
+                @Override
+                public boolean hasNext() {
+                    try {
+                        while (!currentBatch.hasNext() && respIter.hasNext()) {
+                            List<CloneSessionEntry> batch = new ArrayList<>();
+                            extractInto(respIter.next(), batch);
+                            currentBatch = batch.iterator();
+                        }
+                        return currentBatch.hasNext();
+                    } catch (StatusRuntimeException sre) {
+                        throw mapReadFailure(sre);
+                    }
+                }
+
+                @Override
+                public CloneSessionEntry next() {
+                    if (!hasNext()) throw new NoSuchElementException();
+                    return currentBatch.next();
+                }
+            };
+        }
+
+        private CloneSessionEntry parseCloneSessionEntry(
+                p4.v1.P4RuntimeOuterClass.CloneSessionEntry proto) {
+            List<Replica> replicas = new ArrayList<>(proto.getReplicasCount());
+            for (var r : proto.getReplicasList()) {
+                replicas.add(parseReplica(r));
+            }
+            return new CloneSessionEntry(
+                    proto.getSessionId(),
+                    replicas,
+                    proto.getClassOfService(),
+                    proto.getPacketLengthBytes());
+        }
+
+        private Replica parseReplica(p4.v1.P4RuntimeOuterClass.Replica proto) {
+            Bytes port = proto.hasPort()
+                    ? Bytes.of(proto.getPort().toByteArray())
+                    : null;
+            List<BackupReplica> backups = new ArrayList<>(proto.getBackupReplicasCount());
+            for (var b : proto.getBackupReplicasList()) {
+                backups.add(new BackupReplica(
+                        Bytes.of(b.getPort().toByteArray()),
+                        b.getInstance()));
+            }
+            return new Replica(port, proto.getInstance(), backups);
+        }
+
+        private Optional<CloneSessionEntry> collapseToOne(List<CloneSessionEntry> all) {
+            if (all.isEmpty()) return Optional.empty();
+            if (all.size() == 1) return Optional.of(all.get(0));
+            throw new P4OperationException(
+                    "expected at most one clone session entry, got " + all.size(),
                     OperationType.READ,
                     ErrorCode.UNKNOWN,
                     List.of());
