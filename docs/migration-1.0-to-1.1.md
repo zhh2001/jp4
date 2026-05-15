@@ -155,8 +155,11 @@ this section is a cross-reference, kept in sync with that file.
 
 - Multi-switch coordination (a `P4Controller` with deliberate
   fan-out / parallelism / error-aggregation semantics).
-- Other entity-type reads — counters, meters, registers, action
-  profiles, multicast groups, packet replication.
+- Other entity-type reads — multicast groups and packet
+  replication. (v1.4 shipped counters, meters, registers, and
+  action-profile members and groups alongside the v1.0 table
+  reads; see
+  [`migration-1.3-to-1.4.md`](migration-1.3-to-1.4.md).)
 - `ReadQuery.fields(...)` for client-side projection. Design TBD;
   held for a future v1.x release.
 - `DeviceConfig.Tofino` variant alongside `Bmv2` and `Raw` —

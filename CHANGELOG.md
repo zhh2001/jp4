@@ -8,6 +8,123 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 (future v1.x work tracked in the Roadmap section)
 
+## [1.4.0] — 2026-05-16
+
+v1.4 is a SemVer-minor addition over v1.3; the v1.3 public surface
+is unchanged. See [`docs/migration-1.3-to-1.4.md`](docs/migration-1.3-to-1.4.md)
+for usage examples of each new method. The v1.4 release completes
+the per-entity-type read surface: counter, meter, register,
+action-profile member, and action-profile group cells are now
+readable through name-based, typed query builders that mirror the
+shape `ReadQuery` already uses for table reads.
+
+### Added
+
+- **P4Info index extension for the four new entity types** (commit
+  `a280a1e`) — `P4Info` now indexes counters, meters, registers, and
+  action profiles in the same parse-loop pass that already indexes
+  tables and actions, with paired forward (`counter(String)`,
+  `meter(String)`, `register(String)`, `actionProfile(String)`),
+  reverse-id (`counterById(int)`, `meterById(int)`,
+  `registerById(int)`, `actionProfileById(int)`), and name-listing
+  (`counterNames()`, `meterNames()`, `registerNames()`,
+  `actionProfileNames()`) accessors. The forward accessors throw
+  `P4PipelineException` with a known-list hint on miss; the reverse
+  accessors return `null`, matching the convention shared with
+  `tableInfoById` / `actionInfoById`.
+- **Four pipeline value types** (commit `a280a1e`) —
+  `CounterInfo` (name + id + unit + size), `MeterInfo` (name + id
+  + unit + size; the spec's `MeterSpec.Unit` exposes only
+  `UNSPECIFIED` / `BYTES` / `PACKETS`, not the `BOTH` shape
+  counters have), `RegisterInfo` (name + id + size — per-cell
+  `P4DataTypeSpec` is intentionally not exposed, matching the
+  convention `DigestEvent.data` follows for `P4Data`), and
+  `ActionProfileInfo` (name + id + size + max-group-size + the
+  table-id set the profile is referenced from).
+- **`P4Switch.readCounter(String)` + `CounterReadQuery` interface
+  + `CounterEntry` record** (commit `de3e031`) — name-based typed
+  read of one counter array. The query builder offers an
+  `index(long)` server-side filter, a non-default
+  `where(Predicate)` client-side filter, and the five terminals
+  (`all` / `one` / `stream` / `allAsync` / `oneAsync`).
+  `CounterEntry` is a flat record carrying the resolved counter
+  name, the cell index, and both `packetCount` and `byteCount`;
+  which value is meaningful is determined by the counter's unit
+  through `P4Info.counter(name).unit()`. The implementation
+  reuses the existing `outboundExecutor`, `awaitRead`,
+  `mapReadFailure`, and `readabilityException` infrastructure
+  verbatim, establishing the per-entity read template the v1.4
+  surface expands.
+- **`P4Switch.readMeter(String)` + `MeterReadQuery` interface +
+  `MeterEntry` / `MeterConfig` / `MeterCounterData` /
+  `CounterData` records** (commit `e29bd3e`) — name-based typed
+  read of one meter array. `MeterEntry` is a nested record
+  (meter name, index, `MeterConfig`, `MeterCounterData`); the
+  shape mirrors the P4Runtime `MeterEntry` proto directly. The
+  nested `MeterConfig` carries `cir`, `cburst`, `pir`, `pburst`,
+  and `eburst` — the last was added in P4Runtime 1.4.0 and is
+  only used by srTCM meters; for trTCM meters or for devices that
+  predate the addition it surfaces as zero. `MeterCounterData`
+  groups the per-color cumulative counters (green / yellow / red)
+  defined by RFC 2697 / RFC 2698; the message itself was added in
+  P4Runtime 1.4.0. `CounterData` is a small two-field nested
+  helper (`packetCount`, `byteCount`) used only inside
+  `MeterCounterData`; `CounterEntry` deliberately does not share
+  it because a counter cell carries a single counter datum
+  whereas a meter cell carries three.
+- **`P4Switch.readRegister(String)` + `RegisterReadQuery`
+  interface + `RegisterEntry` record** (commit `dd152cf`) —
+  name-based typed read of one register array. `RegisterEntry`
+  is a three-field record (register name, index, `Bytes data`)
+  whose `data` is the serialised bytes of the wire `p4.v1.P4Data`
+  proto — that is, what `proto.getData().toByteArray()` returns,
+  not what `proto.getData().getBitstring()` returns. This matches
+  the convention `DigestEvent.data` already follows and the
+  contract `RegisterInfo`'s javadoc promised in `a280a1e`.
+  Consumers decode via
+  `P4Data.parseFrom(entry.data().toByteArray())` and access the
+  appropriate oneof variant; for the common `bit<W>` / `int<W>`
+  register the field is `.getBitstring()`. Typed P4Data
+  unwrapping is held for a future v1.x release.
+- **`P4Switch.readActionProfileMember(String)` and
+  `readActionProfileGroup(String)` + their
+  `ActionProfileMemberReadQuery` and
+  `ActionProfileGroupReadQuery` interfaces + three records
+  (`ActionProfileMember`, `ActionProfileGroup`, `WeightedMember`)
+  + new `ActionInstance.of(String, Map<String, Bytes>)` factory**
+  (commit `6e43a4b`) — name-based typed read of both halves of
+  the action-profile entity family. Each query builder offers a
+  server-side id filter (`memberId(long)` and `groupId(long)`
+  respectively), a non-default `where(Predicate)`, and the five
+  terminals. `ActionProfileMember` reuses the existing
+  `ActionInstance` value type for its action; the new public
+  static `ActionInstance.of` factory is the smallest surface
+  addition that lets the read path build the record without
+  going through the `TableEntryBuilder` chain. `WeightedMember`
+  carries `memberId`, `weight`, and a nullable `Bytes watchPort`
+  whose null surface covers both an unset `watch_kind` oneof and
+  the deprecated `watch` int32 path; a controller that needs the
+  deprecated path can parse the wire proto directly.
+- **BMv2 integration tests for the new read surfaces** (commit
+  `1199952`) — a dedicated `counters_meters_registers_groups.p4`
+  fixture declares all four indirect features (counter, meter,
+  register, action_selector) in one pipeline so a single BMv2
+  spawn amortises across the five read API families.
+  `CountersMetersRegistersGroupsIntegrationTest` reads counter,
+  meter, register, action-profile member, and action-profile
+  group cells against a real `simple_switch_grpc` instance.
+  Two BMv2-shape findings shape the test code: first,
+  `simple_switch_grpc` 1.15.1 returns `UNIMPLEMENTED` for the
+  `RegisterEntry` read RPC, so the register integration test
+  catches that status code and skips through
+  `Assumptions.assumeTrue` until BMv2 adds support — the unit
+  test in `P4SwitchReadRegisterTest` already covers the jp4
+  read path end-to-end against the gRPC fake; second, P4Runtime
+  1.3+ canonical-bytestring encoding strips leading zero bytes,
+  so a 9-bit port value of 5 sent to BMv2 as `{0x00, 0x05}`
+  round-trips as a single-byte `{0x05}` on the read side, and
+  the action-profile tests send the canonical form to match.
+
 ## [1.3.0] — 2026-05-14
 
 v1.3 is a SemVer-minor addition over v1.2; the v1.2 public surface
@@ -358,8 +475,10 @@ These are tracked for v1.x point releases without committed dates:
 
 - Multi-switch coordination (a `P4Controller` with deliberate fan-out
   / parallelism / error-aggregation semantics).
-- Other entity-type reads — counters, meters, registers, action
-  profiles, multicast groups, packet replication.
+- Other entity-type reads — multicast groups and packet
+  replication. (v1.4 delivered counters, meters, registers, and
+  action-profile members and groups alongside the v1.0 table
+  reads; see [`docs/migration-1.3-to-1.4.md`](docs/migration-1.3-to-1.4.md).)
 - `ReadQuery.fields(...)` for server-side or client-side projection;
   the P4Runtime `ReadRequest` spec carries no projection field, so
   this would be a client-side helper. Design TBD; held for a future
@@ -388,7 +507,9 @@ These are tracked for v1.x point releases without committed dates:
   with real noise; this Examples-CI entry remains held only because
   the demos currently run on an interface where lo-noise dominates.
 
-[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/zhh2001/jp4/releases/tag/v1.4.0
+[1.3.0]: https://github.com/zhh2001/jp4/releases/tag/v1.3.0
 [1.2.0]: https://github.com/zhh2001/jp4/releases/tag/v1.2.0
 [1.1.0]: https://github.com/zhh2001/jp4/releases/tag/v1.1.0
 [1.0.0]: https://github.com/zhh2001/jp4/releases/tag/v1.0.0
