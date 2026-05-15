@@ -3,6 +3,7 @@ package io.github.zhh2001.jp4;
 import io.github.zhh2001.jp4.entity.ActionInstance;
 import io.github.zhh2001.jp4.entity.ActionProfileGroup;
 import io.github.zhh2001.jp4.entity.ActionProfileMember;
+import io.github.zhh2001.jp4.entity.BackupReplica;
 import io.github.zhh2001.jp4.entity.CounterData;
 import io.github.zhh2001.jp4.entity.CounterEntry;
 import io.github.zhh2001.jp4.entity.DigestConfig;
@@ -10,11 +11,13 @@ import io.github.zhh2001.jp4.entity.DigestEvent;
 import io.github.zhh2001.jp4.entity.DropEvent;
 import io.github.zhh2001.jp4.entity.IdleTimeoutEvent;
 import io.github.zhh2001.jp4.entity.MeterConfig;
+import io.github.zhh2001.jp4.entity.MulticastGroupEntry;
 import io.github.zhh2001.jp4.entity.MeterCounterData;
 import io.github.zhh2001.jp4.entity.MeterEntry;
 import io.github.zhh2001.jp4.entity.PacketIn;
 import io.github.zhh2001.jp4.entity.PacketOut;
 import io.github.zhh2001.jp4.entity.RegisterEntry;
+import io.github.zhh2001.jp4.entity.Replica;
 import io.github.zhh2001.jp4.entity.TableEntry;
 import io.github.zhh2001.jp4.entity.UpdateFailure;
 import io.github.zhh2001.jp4.entity.WeightedMember;
@@ -925,6 +928,39 @@ public final class P4Switch implements AutoCloseable {
         }
         pipe.p4info().actionProfile(actionProfileName);
         return new ActionProfileGroupReadQueryImpl(actionProfileName, pipe);
+    }
+
+    /**
+     * Returns a builder for a P4Runtime {@code Read} request against the
+     * multicast groups programmed on the device's packet replication engine.
+     * Call a terminal on the returned query to dispatch the read.
+     * Optionally narrow with {@link MulticastGroupReadQuery#groupId(long)}
+     * (server-side filter via the wire {@code multicast_group_id} field) or
+     * {@link MulticastGroupReadQuery#where(java.util.function.Predicate)}
+     * (client-side filter applied to results after fetch).
+     *
+     * <p>Unlike the table-driven read APIs ({@link #readCounter(String)},
+     * {@link #readMeter(String)}, {@link #readRegister(String)},
+     * {@link #readActionProfileMember(String)},
+     * {@link #readActionProfileGroup(String)}), this method takes no P4
+     * name — the packet replication engine is program-agnostic and
+     * multicast groups are addressed by controller-assigned numeric id
+     * only. The pipeline-bound gate still applies so the call site
+     * fails loudly if the controller has not yet bound a P4 pipeline.
+     *
+     * @throws P4ConnectionException if the switch is closed or the stream is broken
+     * @throws P4PipelineException   if no pipeline is bound
+     * @since 1.5.0
+     */
+    public MulticastGroupReadQuery readMulticastGroup() {
+        P4ConnectionException gate = readabilityException();
+        if (gate != null) throw gate;
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
+        return new MulticastGroupReadQueryImpl(pipe);
     }
 
     /**
@@ -3531,5 +3567,253 @@ public final class P4Switch implements AutoCloseable {
             params.put(paramInfo.name(), Bytes.of(p.getValue().toByteArray()));
         }
         return ActionInstance.of(actionInfo.name(), params);
+    }
+
+    /**
+     * Multicast-group-read counterpart of the per-entity ReadQueryImpl
+     * family. Holds the Pipeline snapshot and an optional group-id
+     * filter, builds a {@code ReadRequest} that targets the device's
+     * packet replication engine (optionally narrowed to one group),
+     * dispatches it through the outbound executor, and parses each
+     * response Entity into a {@link MulticastGroupEntry} with its
+     * nested {@link Replica} list and per-replica
+     * {@link BackupReplica} entries.
+     */
+    private final class MulticastGroupReadQueryImpl implements MulticastGroupReadQuery {
+
+        private final Pipeline pipe;
+        private final List<Predicate<? super MulticastGroupEntry>> filters = new ArrayList<>();
+        private Long groupIdFilter;
+
+        MulticastGroupReadQueryImpl(Pipeline pipe) {
+            this.pipe = pipe;
+        }
+
+        @Override
+        public MulticastGroupReadQuery groupId(long multicastGroupId) {
+            this.groupIdFilter = multicastGroupId;
+            return this;
+        }
+
+        @Override
+        public MulticastGroupReadQuery where(Predicate<? super MulticastGroupEntry> filter) {
+            Objects.requireNonNull(filter, "filter");
+            filters.add(filter);
+            return this;
+        }
+
+        private boolean accept(MulticastGroupEntry e) {
+            for (Predicate<? super MulticastGroupEntry> p : filters) {
+                if (!p.test(e)) return false;
+            }
+            return true;
+        }
+
+        @Override
+        public List<MulticastGroupEntry> all() {
+            return awaitRead(allAsync());
+        }
+
+        @Override
+        public Optional<MulticastGroupEntry> one() {
+            return collapseToOne(all());
+        }
+
+        @Override
+        public CompletableFuture<List<MulticastGroupEntry>> allAsync() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) {
+                CompletableFuture<List<MulticastGroupEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(gate);
+                return f;
+            }
+            StreamSession sess = session.get();
+            if (sess == null) {
+                CompletableFuture<List<MulticastGroupEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(new P4ConnectionException("no active session"));
+                return f;
+            }
+
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+            CompletableFuture<List<MulticastGroupEntry>> result = new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it =
+                                P4RuntimeGrpc.newBlockingStub(sess.channel)
+                                        .withDeadlineAfter(30, TimeUnit.SECONDS)
+                                        .read(req);
+                        List<MulticastGroupEntry> entries = new ArrayList<>();
+                        while (it.hasNext()) {
+                            extractInto(it.next(), entries);
+                        }
+                        List<MulticastGroupEntry> filtered;
+                        if (filters.isEmpty()) {
+                            filtered = entries;
+                        } else {
+                            filtered = new ArrayList<>(entries.size());
+                            for (MulticastGroupEntry e : entries) {
+                                if (accept(e)) filtered.add(e);
+                            }
+                        }
+                        result.complete(filtered);
+                    } catch (StatusRuntimeException sre) {
+                        result.completeExceptionally(mapReadFailure(sre));
+                    } catch (RuntimeException re) {
+                        result.completeExceptionally(re);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+            }
+            return result;
+        }
+
+        @Override
+        public CompletableFuture<Optional<MulticastGroupEntry>> oneAsync() {
+            return allAsync().thenApply(this::collapseToOne);
+        }
+
+        @Override
+        public Stream<MulticastGroupEntry> stream() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) throw gate;
+            StreamSession sess = session.get();
+            if (sess == null) throw new P4ConnectionException("no active session");
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+
+            Context.CancellableContext ctx = Context.current().withCancellation();
+            CompletableFuture<Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse>> startFuture =
+                    new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it = ctx.call(() ->
+                                P4RuntimeGrpc.newBlockingStub(sess.channel).read(req));
+                        startFuture.complete(it);
+                    } catch (Exception e) {
+                        startFuture.completeExceptionally(e);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("switch is closed", ree);
+            }
+
+            Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter;
+            try {
+                respIter = startFuture.get(30, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                ctx.cancel(null);
+                throw new P4ConnectionException(
+                        "multicast-group read RPC timed out before stream start", te);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                ctx.cancel(null);
+                throw new P4ConnectionException(
+                        "interrupted while starting multicast-group read stream", ie);
+            } catch (ExecutionException ee) {
+                ctx.cancel(null);
+                Throwable cause = ee.getCause();
+                if (cause instanceof RuntimeException re) throw re;
+                throw new P4ConnectionException(
+                        "multicast-group read RPC failed to start", cause);
+            }
+
+            Iterator<MulticastGroupEntry> entryIter = flatten(respIter);
+            Stream<MulticastGroupEntry> base = StreamSupport.stream(
+                    Spliterators.spliteratorUnknownSize(entryIter, Spliterator.ORDERED),
+                    /* parallel */ false
+            ).onClose(() -> ctx.cancel(null));
+            return filters.isEmpty() ? base : base.filter(this::accept);
+        }
+
+        // ---------- helpers ------------------------------------------------
+
+        private p4.v1.P4RuntimeOuterClass.ReadRequest buildReadRequest() {
+            var mgBuilder = p4.v1.P4RuntimeOuterClass.MulticastGroupEntry.newBuilder();
+            if (groupIdFilter != null) {
+                mgBuilder.setMulticastGroupId(groupIdFilter.intValue());
+            }
+            var preBuilder = p4.v1.P4RuntimeOuterClass.PacketReplicationEngineEntry.newBuilder()
+                    .setMulticastGroupEntry(mgBuilder.build());
+            var entity = p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                    .setPacketReplicationEngineEntry(preBuilder.build())
+                    .build();
+            return p4.v1.P4RuntimeOuterClass.ReadRequest.newBuilder()
+                    .setDeviceId(deviceId)
+                    .addEntities(entity)
+                    .build();
+        }
+
+        private void extractInto(p4.v1.P4RuntimeOuterClass.ReadResponse resp,
+                                 List<MulticastGroupEntry> sink) {
+            for (p4.v1.P4RuntimeOuterClass.Entity ent : resp.getEntitiesList()) {
+                if (!ent.hasPacketReplicationEngineEntry()) continue;
+                var pre = ent.getPacketReplicationEngineEntry();
+                if (!pre.hasMulticastGroupEntry()) continue;
+                sink.add(parseMulticastGroupEntry(pre.getMulticastGroupEntry()));
+            }
+        }
+
+        private Iterator<MulticastGroupEntry> flatten(
+                Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter) {
+            return new Iterator<>() {
+                private Iterator<MulticastGroupEntry> currentBatch = Collections.emptyIterator();
+
+                @Override
+                public boolean hasNext() {
+                    try {
+                        while (!currentBatch.hasNext() && respIter.hasNext()) {
+                            List<MulticastGroupEntry> batch = new ArrayList<>();
+                            extractInto(respIter.next(), batch);
+                            currentBatch = batch.iterator();
+                        }
+                        return currentBatch.hasNext();
+                    } catch (StatusRuntimeException sre) {
+                        throw mapReadFailure(sre);
+                    }
+                }
+
+                @Override
+                public MulticastGroupEntry next() {
+                    if (!hasNext()) throw new NoSuchElementException();
+                    return currentBatch.next();
+                }
+            };
+        }
+
+        private MulticastGroupEntry parseMulticastGroupEntry(
+                p4.v1.P4RuntimeOuterClass.MulticastGroupEntry proto) {
+            List<Replica> replicas = new ArrayList<>(proto.getReplicasCount());
+            for (var r : proto.getReplicasList()) {
+                replicas.add(parseReplica(r));
+            }
+            Bytes metadata = Bytes.of(proto.getMetadata().toByteArray());
+            return new MulticastGroupEntry(proto.getMulticastGroupId(), replicas, metadata);
+        }
+
+        private Replica parseReplica(p4.v1.P4RuntimeOuterClass.Replica proto) {
+            Bytes port = proto.hasPort()
+                    ? Bytes.of(proto.getPort().toByteArray())
+                    : null;
+            List<BackupReplica> backups = new ArrayList<>(proto.getBackupReplicasCount());
+            for (var b : proto.getBackupReplicasList()) {
+                backups.add(new BackupReplica(
+                        Bytes.of(b.getPort().toByteArray()),
+                        b.getInstance()));
+            }
+            return new Replica(port, proto.getInstance(), backups);
+        }
+
+        private Optional<MulticastGroupEntry> collapseToOne(List<MulticastGroupEntry> all) {
+            if (all.isEmpty()) return Optional.empty();
+            if (all.size() == 1) return Optional.of(all.get(0));
+            throw new P4OperationException(
+                    "expected at most one multicast group entry, got " + all.size(),
+                    OperationType.READ,
+                    ErrorCode.UNKNOWN,
+                    List.of());
+        }
     }
 }
