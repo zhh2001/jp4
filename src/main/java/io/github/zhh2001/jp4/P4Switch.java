@@ -1,10 +1,14 @@
 package io.github.zhh2001.jp4;
 
+import io.github.zhh2001.jp4.entity.CounterData;
 import io.github.zhh2001.jp4.entity.CounterEntry;
 import io.github.zhh2001.jp4.entity.DigestConfig;
 import io.github.zhh2001.jp4.entity.DigestEvent;
 import io.github.zhh2001.jp4.entity.DropEvent;
 import io.github.zhh2001.jp4.entity.IdleTimeoutEvent;
+import io.github.zhh2001.jp4.entity.MeterConfig;
+import io.github.zhh2001.jp4.entity.MeterCounterData;
+import io.github.zhh2001.jp4.entity.MeterEntry;
 import io.github.zhh2001.jp4.entity.PacketIn;
 import io.github.zhh2001.jp4.entity.PacketOut;
 import io.github.zhh2001.jp4.entity.TableEntry;
@@ -17,6 +21,7 @@ import io.github.zhh2001.jp4.error.P4OperationException;
 import io.github.zhh2001.jp4.error.P4PipelineException;
 import io.github.zhh2001.jp4.match.Match;
 import io.github.zhh2001.jp4.pipeline.CounterInfo;
+import io.github.zhh2001.jp4.pipeline.MeterInfo;
 import io.grpc.Context;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
@@ -779,6 +784,40 @@ public final class P4Switch implements AutoCloseable {
         // Eager existence check; throws P4PipelineException with known-list on miss.
         pipe.p4info().counter(counterName);
         return new CounterReadQueryImpl(counterName, pipe);
+    }
+
+    /**
+     * Returns a builder for a P4Runtime {@code Read} request against the
+     * meter named {@code meterName}. Call a terminal
+     * ({@link MeterReadQuery#all()}, {@link MeterReadQuery#one()},
+     * {@link MeterReadQuery#stream()}, or the {@code allAsync}/{@code oneAsync}
+     * variants) on it to dispatch the read. Optionally narrow with
+     * {@link MeterReadQuery#index(long)} (server-side filter via the
+     * P4Runtime {@code Index} field) or
+     * {@link MeterReadQuery#where(java.util.function.Predicate)}
+     * (client-side filter applied to results after fetch).
+     *
+     * <p>The meter name is validated eagerly against the bound P4Info —
+     * calling {@code readMeter("typo")} fails immediately with a
+     * known-list message rather than deferring the failure to a terminal
+     * call. Mirrors the eagerness of {@link #readCounter(String)}.
+     *
+     * @throws P4ConnectionException if the switch is closed or the stream is broken
+     * @throws P4PipelineException   if no pipeline is bound or the meter name is unknown
+     * @since 1.4.0
+     */
+    public MeterReadQuery readMeter(String meterName) {
+        Objects.requireNonNull(meterName, "meterName");
+        P4ConnectionException gate = readabilityException();
+        if (gate != null) throw gate;
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
+        // Eager existence check; throws P4PipelineException with known-list on miss.
+        pipe.p4info().meter(meterName);
+        return new MeterReadQueryImpl(meterName, pipe);
     }
 
     /**
@@ -2345,6 +2384,270 @@ public final class P4Switch implements AutoCloseable {
             if (all.size() == 1) return Optional.of(all.get(0));
             throw new P4OperationException(
                     "expected at most one entry from counter '" + counterName
+                            + "', got " + all.size() + " entries",
+                    OperationType.READ,
+                    ErrorCode.UNKNOWN,
+                    List.of());
+        }
+    }
+
+    /**
+     * Meter-read counterpart of {@link CounterReadQueryImpl}. Holds the
+     * resolved meter name + Pipeline snapshot, an optional index filter,
+     * and an accumulated list of client-side {@code where} predicates.
+     * Builds a {@code ReadRequest} that targets a single meter array
+     * (optionally narrowed to one cell), dispatches it through the
+     * outbound executor, and parses each response Entity back into a
+     * {@link MeterEntry} with nested {@link MeterConfig} and
+     * {@link MeterCounterData}.
+     */
+    private final class MeterReadQueryImpl implements MeterReadQuery {
+
+        private final String meterName;
+        private final Pipeline pipe;
+        private final List<Predicate<? super MeterEntry>> filters = new ArrayList<>();
+        private Long indexFilter;        // null = read all cells; non-null = single-cell read
+
+        MeterReadQueryImpl(String meterName, Pipeline pipe) {
+            this.meterName = meterName;
+            this.pipe = pipe;
+        }
+
+        @Override
+        public MeterReadQuery index(long index) {
+            this.indexFilter = index;
+            return this;
+        }
+
+        @Override
+        public MeterReadQuery where(Predicate<? super MeterEntry> filter) {
+            Objects.requireNonNull(filter, "filter");
+            filters.add(filter);
+            return this;
+        }
+
+        private boolean accept(MeterEntry e) {
+            for (Predicate<? super MeterEntry> p : filters) {
+                if (!p.test(e)) return false;
+            }
+            return true;
+        }
+
+        @Override
+        public List<MeterEntry> all() {
+            return awaitRead(allAsync());
+        }
+
+        @Override
+        public Optional<MeterEntry> one() {
+            return collapseToOne(all());
+        }
+
+        @Override
+        public CompletableFuture<List<MeterEntry>> allAsync() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) {
+                CompletableFuture<List<MeterEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(gate);
+                return f;
+            }
+            StreamSession sess = session.get();
+            if (sess == null) {
+                CompletableFuture<List<MeterEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(new P4ConnectionException("no active session"));
+                return f;
+            }
+
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+            CompletableFuture<List<MeterEntry>> result = new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it =
+                                P4RuntimeGrpc.newBlockingStub(sess.channel)
+                                        .withDeadlineAfter(30, TimeUnit.SECONDS)
+                                        .read(req);
+                        List<MeterEntry> entries = new ArrayList<>();
+                        while (it.hasNext()) {
+                            extractInto(it.next(), entries);
+                        }
+                        List<MeterEntry> filtered;
+                        if (filters.isEmpty()) {
+                            filtered = entries;
+                        } else {
+                            filtered = new ArrayList<>(entries.size());
+                            for (MeterEntry e : entries) {
+                                if (accept(e)) filtered.add(e);
+                            }
+                        }
+                        result.complete(filtered);
+                    } catch (StatusRuntimeException sre) {
+                        result.completeExceptionally(mapReadFailure(sre));
+                    } catch (RuntimeException re) {
+                        result.completeExceptionally(re);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+            }
+            return result;
+        }
+
+        @Override
+        public CompletableFuture<Optional<MeterEntry>> oneAsync() {
+            return allAsync().thenApply(this::collapseToOne);
+        }
+
+        @Override
+        public Stream<MeterEntry> stream() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) throw gate;
+            StreamSession sess = session.get();
+            if (sess == null) throw new P4ConnectionException("no active session");
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+
+            Context.CancellableContext ctx = Context.current().withCancellation();
+            CompletableFuture<Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse>> startFuture =
+                    new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it = ctx.call(() ->
+                                P4RuntimeGrpc.newBlockingStub(sess.channel).read(req));
+                        startFuture.complete(it);
+                    } catch (Exception e) {
+                        startFuture.completeExceptionally(e);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("switch is closed", ree);
+            }
+
+            Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter;
+            try {
+                respIter = startFuture.get(30, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("meter read RPC timed out before stream start", te);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                ctx.cancel(null);
+                throw new P4ConnectionException("interrupted while starting meter read stream", ie);
+            } catch (ExecutionException ee) {
+                ctx.cancel(null);
+                Throwable cause = ee.getCause();
+                if (cause instanceof RuntimeException re) throw re;
+                throw new P4ConnectionException("meter read RPC failed to start", cause);
+            }
+
+            Iterator<MeterEntry> entryIter = flatten(respIter);
+            Stream<MeterEntry> base = StreamSupport.stream(
+                    Spliterators.spliteratorUnknownSize(entryIter, Spliterator.ORDERED),
+                    /* parallel */ false
+            ).onClose(() -> ctx.cancel(null));
+            return filters.isEmpty() ? base : base.filter(this::accept);
+        }
+
+        // ---------- helpers ------------------------------------------------
+
+        private p4.v1.P4RuntimeOuterClass.ReadRequest buildReadRequest() {
+            // Eager meter_id resolution; pipeline snapshot captured at .readMeter() time.
+            int meterId = pipe.p4info().meter(meterName).id();
+            var meBuilder = p4.v1.P4RuntimeOuterClass.MeterEntry.newBuilder()
+                    .setMeterId(meterId);
+            if (indexFilter != null) {
+                meBuilder.setIndex(p4.v1.P4RuntimeOuterClass.Index.newBuilder()
+                        .setIndex(indexFilter)
+                        .build());
+            }
+            var entity = p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                    .setMeterEntry(meBuilder.build())
+                    .build();
+            return p4.v1.P4RuntimeOuterClass.ReadRequest.newBuilder()
+                    .setDeviceId(deviceId)
+                    .addEntities(entity)
+                    .build();
+        }
+
+        private void extractInto(p4.v1.P4RuntimeOuterClass.ReadResponse resp,
+                                 List<MeterEntry> sink) {
+            for (p4.v1.P4RuntimeOuterClass.Entity ent : resp.getEntitiesList()) {
+                if (!ent.hasMeterEntry()) continue;   // tolerate mixed-entity responses
+                sink.add(parseMeterEntry(ent.getMeterEntry()));
+            }
+        }
+
+        private Iterator<MeterEntry> flatten(
+                Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter) {
+            return new Iterator<>() {
+                private Iterator<MeterEntry> currentBatch = Collections.emptyIterator();
+
+                @Override
+                public boolean hasNext() {
+                    try {
+                        while (!currentBatch.hasNext() && respIter.hasNext()) {
+                            List<MeterEntry> batch = new ArrayList<>();
+                            extractInto(respIter.next(), batch);
+                            currentBatch = batch.iterator();
+                        }
+                        return currentBatch.hasNext();
+                    } catch (StatusRuntimeException sre) {
+                        throw mapReadFailure(sre);
+                    }
+                }
+
+                @Override
+                public MeterEntry next() {
+                    if (!hasNext()) throw new NoSuchElementException();
+                    return currentBatch.next();
+                }
+            };
+        }
+
+        private MeterEntry parseMeterEntry(p4.v1.P4RuntimeOuterClass.MeterEntry proto) {
+            // Reverse-lookup meter_id → name. Defensive against P4Info drift —
+            // a wire meter_id we cannot resolve surfaces loudly rather than
+            // being silently rebound to the eagerly-resolved name.
+            MeterInfo info = pipe.p4info().meterById(proto.getMeterId());
+            if (info == null) {
+                throw new P4PipelineException(
+                        "device returned meter id " + proto.getMeterId()
+                                + " which is not in the bound P4Info; pipeline may have"
+                                + " drifted since bindPipeline");
+            }
+            long idx = proto.hasIndex() ? proto.getIndex().getIndex() : 0L;
+            MeterConfig config = parseMeterConfig(proto.getConfig());
+            MeterCounterData counterData = parseMeterCounterData(proto.getCounterData());
+            return new MeterEntry(info.name(), idx, config, counterData);
+        }
+
+        private MeterConfig parseMeterConfig(p4.v1.P4RuntimeOuterClass.MeterConfig proto) {
+            return new MeterConfig(
+                    proto.getCir(),
+                    proto.getCburst(),
+                    proto.getPir(),
+                    proto.getPburst(),
+                    proto.getEburst());
+        }
+
+        private MeterCounterData parseMeterCounterData(
+                p4.v1.P4RuntimeOuterClass.MeterCounterData proto) {
+            return new MeterCounterData(
+                    parseCounterData(proto.getGreen()),
+                    parseCounterData(proto.getYellow()),
+                    parseCounterData(proto.getRed()));
+        }
+
+        private CounterData parseCounterData(p4.v1.P4RuntimeOuterClass.CounterData proto) {
+            return new CounterData(proto.getPacketCount(), proto.getByteCount());
+        }
+
+        private Optional<MeterEntry> collapseToOne(List<MeterEntry> all) {
+            if (all.isEmpty()) return Optional.empty();
+            if (all.size() == 1) return Optional.of(all.get(0));
+            throw new P4OperationException(
+                    "expected at most one entry from meter '" + meterName
                             + "', got " + all.size() + " entries",
                     OperationType.READ,
                     ErrorCode.UNKNOWN,
