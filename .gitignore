@@ -3,6 +3,13 @@ build/
 .gradle/
 out/
 
+# VitePress build outputs and dev caches
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
+# Node.js dependencies (committed lockfile, not the resolved tree)
+node_modules/
+
 # IDE files
 .idea/
 *.iml

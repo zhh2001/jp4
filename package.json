@@ -1,0 +1,15 @@
+{
+  "name": "jp4-docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "VitePress documentation site for jp4 — a native Java client library for P4Runtime. Built and deployed to GitHub Pages. Not a publishable npm package; node tooling lives here only to build the static site.",
+  "scripts": {
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}

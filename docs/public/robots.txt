@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://zhh2001.github.io/jp4/sitemap.xml

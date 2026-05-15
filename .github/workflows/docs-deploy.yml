@@ -1,0 +1,67 @@
+name: Deploy docs site to GitHub Pages
+
+# The docs site is built from docs/ via VitePress and deployed to
+# GitHub Pages on every push to main that touches docs/, the
+# workflow file itself, or the npm dependency lockfile. The site
+# lives separately from the main CI matrix (ci.yml) so neither
+# pipeline blocks the other.
+#
+# Prerequisite (one-time, manual): in repo Settings -> Pages, set
+# the "Source" to "GitHub Actions". Without that toggle the deploy
+# job fails at actions/deploy-pages with a clear "Pages is not
+# configured" error.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/docs-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Cancel in-progress runs when a new push lands so the freshest
+# main commit is the one that ships.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build VitePress site
+        run: npm run docs:build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
