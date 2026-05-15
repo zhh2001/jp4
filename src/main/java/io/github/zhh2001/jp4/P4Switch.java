@@ -1,5 +1,8 @@
 package io.github.zhh2001.jp4;
 
+import io.github.zhh2001.jp4.entity.ActionInstance;
+import io.github.zhh2001.jp4.entity.ActionProfileGroup;
+import io.github.zhh2001.jp4.entity.ActionProfileMember;
 import io.github.zhh2001.jp4.entity.CounterData;
 import io.github.zhh2001.jp4.entity.CounterEntry;
 import io.github.zhh2001.jp4.entity.DigestConfig;
@@ -14,6 +17,7 @@ import io.github.zhh2001.jp4.entity.PacketOut;
 import io.github.zhh2001.jp4.entity.RegisterEntry;
 import io.github.zhh2001.jp4.entity.TableEntry;
 import io.github.zhh2001.jp4.entity.UpdateFailure;
+import io.github.zhh2001.jp4.entity.WeightedMember;
 import io.github.zhh2001.jp4.error.ErrorCode;
 import io.github.zhh2001.jp4.error.OperationType;
 import io.github.zhh2001.jp4.error.P4ArbitrationLost;
@@ -23,6 +27,9 @@ import io.github.zhh2001.jp4.error.P4PipelineException;
 import io.github.zhh2001.jp4.match.Match;
 import io.github.zhh2001.jp4.pipeline.CounterInfo;
 import io.github.zhh2001.jp4.pipeline.MeterInfo;
+import io.github.zhh2001.jp4.pipeline.ActionInfo;
+import io.github.zhh2001.jp4.pipeline.ActionParamInfo;
+import io.github.zhh2001.jp4.pipeline.ActionProfileInfo;
 import io.github.zhh2001.jp4.pipeline.RegisterInfo;
 import io.grpc.Context;
 import io.grpc.StatusRuntimeException;
@@ -854,6 +861,70 @@ public final class P4Switch implements AutoCloseable {
         // Eager existence check; throws P4PipelineException with known-list on miss.
         pipe.p4info().register(registerName);
         return new RegisterReadQueryImpl(registerName, pipe);
+    }
+
+    /**
+     * Returns a builder for a P4Runtime {@code Read} request against the
+     * members of the action profile named {@code actionProfileName}. Call
+     * a terminal on the returned query to dispatch the read. Optionally
+     * narrow with {@link ActionProfileMemberReadQuery#memberId(long)}
+     * (server-side filter via the wire {@code member_id} field) or
+     * {@link ActionProfileMemberReadQuery#where(java.util.function.Predicate)}
+     * (client-side filter applied to results after fetch).
+     *
+     * <p>The action profile name is validated eagerly against the bound
+     * P4Info — calling {@code readActionProfileMember("typo")} fails
+     * immediately with a known-list message rather than deferring the
+     * failure to a terminal call. Mirrors the eagerness of
+     * {@link #readRegister(String)}.
+     *
+     * @throws P4ConnectionException if the switch is closed or the stream is broken
+     * @throws P4PipelineException   if no pipeline is bound or the action profile name is unknown
+     * @since 1.4.0
+     */
+    public ActionProfileMemberReadQuery readActionProfileMember(String actionProfileName) {
+        Objects.requireNonNull(actionProfileName, "actionProfileName");
+        P4ConnectionException gate = readabilityException();
+        if (gate != null) throw gate;
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
+        pipe.p4info().actionProfile(actionProfileName);
+        return new ActionProfileMemberReadQueryImpl(actionProfileName, pipe);
+    }
+
+    /**
+     * Returns a builder for a P4Runtime {@code Read} request against the
+     * groups of the action profile named {@code actionProfileName}. Call
+     * a terminal on the returned query to dispatch the read. Optionally
+     * narrow with {@link ActionProfileGroupReadQuery#groupId(long)}
+     * (server-side filter via the wire {@code group_id} field) or
+     * {@link ActionProfileGroupReadQuery#where(java.util.function.Predicate)}
+     * (client-side filter applied to results after fetch).
+     *
+     * <p>The action profile name is validated eagerly against the bound
+     * P4Info — calling {@code readActionProfileGroup("typo")} fails
+     * immediately with a known-list message rather than deferring the
+     * failure to a terminal call. Mirrors the eagerness of
+     * {@link #readActionProfileMember(String)}.
+     *
+     * @throws P4ConnectionException if the switch is closed or the stream is broken
+     * @throws P4PipelineException   if no pipeline is bound or the action profile name is unknown
+     * @since 1.4.0
+     */
+    public ActionProfileGroupReadQuery readActionProfileGroup(String actionProfileName) {
+        Objects.requireNonNull(actionProfileName, "actionProfileName");
+        P4ConnectionException gate = readabilityException();
+        if (gate != null) throw gate;
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
+        pipe.p4info().actionProfile(actionProfileName);
+        return new ActionProfileGroupReadQueryImpl(actionProfileName, pipe);
     }
 
     /**
@@ -2933,5 +3004,532 @@ public final class P4Switch implements AutoCloseable {
                     ErrorCode.UNKNOWN,
                     List.of());
         }
+    }
+
+    /**
+     * Action-profile-member-read counterpart of the per-entity ReadQueryImpl
+     * family. Holds the resolved action-profile name + Pipeline snapshot, an
+     * optional member-id filter, and an accumulated list of client-side
+     * {@code where} predicates. Builds a {@code ReadRequest} that targets a
+     * single action profile (optionally narrowed to one member), dispatches
+     * it through the outbound executor, and parses each response Entity
+     * back into an {@link ActionProfileMember} whose action is reconstructed
+     * via {@link ActionInstance#of(String, Map)}.
+     */
+    private final class ActionProfileMemberReadQueryImpl implements ActionProfileMemberReadQuery {
+
+        private final String actionProfileName;
+        private final Pipeline pipe;
+        private final List<Predicate<? super ActionProfileMember>> filters = new ArrayList<>();
+        private Long memberIdFilter;     // null = read all members; non-null = single member read
+
+        ActionProfileMemberReadQueryImpl(String actionProfileName, Pipeline pipe) {
+            this.actionProfileName = actionProfileName;
+            this.pipe = pipe;
+        }
+
+        @Override
+        public ActionProfileMemberReadQuery memberId(long memberId) {
+            this.memberIdFilter = memberId;
+            return this;
+        }
+
+        @Override
+        public ActionProfileMemberReadQuery where(Predicate<? super ActionProfileMember> filter) {
+            Objects.requireNonNull(filter, "filter");
+            filters.add(filter);
+            return this;
+        }
+
+        private boolean accept(ActionProfileMember e) {
+            for (Predicate<? super ActionProfileMember> p : filters) {
+                if (!p.test(e)) return false;
+            }
+            return true;
+        }
+
+        @Override
+        public List<ActionProfileMember> all() {
+            return awaitRead(allAsync());
+        }
+
+        @Override
+        public Optional<ActionProfileMember> one() {
+            return collapseToOne(all());
+        }
+
+        @Override
+        public CompletableFuture<List<ActionProfileMember>> allAsync() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) {
+                CompletableFuture<List<ActionProfileMember>> f = new CompletableFuture<>();
+                f.completeExceptionally(gate);
+                return f;
+            }
+            StreamSession sess = session.get();
+            if (sess == null) {
+                CompletableFuture<List<ActionProfileMember>> f = new CompletableFuture<>();
+                f.completeExceptionally(new P4ConnectionException("no active session"));
+                return f;
+            }
+
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+            CompletableFuture<List<ActionProfileMember>> result = new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it =
+                                P4RuntimeGrpc.newBlockingStub(sess.channel)
+                                        .withDeadlineAfter(30, TimeUnit.SECONDS)
+                                        .read(req);
+                        List<ActionProfileMember> entries = new ArrayList<>();
+                        while (it.hasNext()) {
+                            extractInto(it.next(), entries);
+                        }
+                        List<ActionProfileMember> filtered;
+                        if (filters.isEmpty()) {
+                            filtered = entries;
+                        } else {
+                            filtered = new ArrayList<>(entries.size());
+                            for (ActionProfileMember e : entries) {
+                                if (accept(e)) filtered.add(e);
+                            }
+                        }
+                        result.complete(filtered);
+                    } catch (StatusRuntimeException sre) {
+                        result.completeExceptionally(mapReadFailure(sre));
+                    } catch (RuntimeException re) {
+                        result.completeExceptionally(re);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+            }
+            return result;
+        }
+
+        @Override
+        public CompletableFuture<Optional<ActionProfileMember>> oneAsync() {
+            return allAsync().thenApply(this::collapseToOne);
+        }
+
+        @Override
+        public Stream<ActionProfileMember> stream() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) throw gate;
+            StreamSession sess = session.get();
+            if (sess == null) throw new P4ConnectionException("no active session");
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+
+            Context.CancellableContext ctx = Context.current().withCancellation();
+            CompletableFuture<Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse>> startFuture =
+                    new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it = ctx.call(() ->
+                                P4RuntimeGrpc.newBlockingStub(sess.channel).read(req));
+                        startFuture.complete(it);
+                    } catch (Exception e) {
+                        startFuture.completeExceptionally(e);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("switch is closed", ree);
+            }
+
+            Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter;
+            try {
+                respIter = startFuture.get(30, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                ctx.cancel(null);
+                throw new P4ConnectionException(
+                        "action-profile member read RPC timed out before stream start", te);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                ctx.cancel(null);
+                throw new P4ConnectionException(
+                        "interrupted while starting action-profile member read stream", ie);
+            } catch (ExecutionException ee) {
+                ctx.cancel(null);
+                Throwable cause = ee.getCause();
+                if (cause instanceof RuntimeException re) throw re;
+                throw new P4ConnectionException(
+                        "action-profile member read RPC failed to start", cause);
+            }
+
+            Iterator<ActionProfileMember> entryIter = flatten(respIter);
+            Stream<ActionProfileMember> base = StreamSupport.stream(
+                    Spliterators.spliteratorUnknownSize(entryIter, Spliterator.ORDERED),
+                    /* parallel */ false
+            ).onClose(() -> ctx.cancel(null));
+            return filters.isEmpty() ? base : base.filter(this::accept);
+        }
+
+        // ---------- helpers ------------------------------------------------
+
+        private p4.v1.P4RuntimeOuterClass.ReadRequest buildReadRequest() {
+            int actionProfileId = pipe.p4info().actionProfile(actionProfileName).id();
+            var mBuilder = p4.v1.P4RuntimeOuterClass.ActionProfileMember.newBuilder()
+                    .setActionProfileId(actionProfileId);
+            if (memberIdFilter != null) {
+                mBuilder.setMemberId(memberIdFilter.intValue());
+            }
+            var entity = p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                    .setActionProfileMember(mBuilder.build())
+                    .build();
+            return p4.v1.P4RuntimeOuterClass.ReadRequest.newBuilder()
+                    .setDeviceId(deviceId)
+                    .addEntities(entity)
+                    .build();
+        }
+
+        private void extractInto(p4.v1.P4RuntimeOuterClass.ReadResponse resp,
+                                 List<ActionProfileMember> sink) {
+            for (p4.v1.P4RuntimeOuterClass.Entity ent : resp.getEntitiesList()) {
+                if (!ent.hasActionProfileMember()) continue;
+                sink.add(parseActionProfileMember(ent.getActionProfileMember()));
+            }
+        }
+
+        private Iterator<ActionProfileMember> flatten(
+                Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter) {
+            return new Iterator<>() {
+                private Iterator<ActionProfileMember> currentBatch = Collections.emptyIterator();
+
+                @Override
+                public boolean hasNext() {
+                    try {
+                        while (!currentBatch.hasNext() && respIter.hasNext()) {
+                            List<ActionProfileMember> batch = new ArrayList<>();
+                            extractInto(respIter.next(), batch);
+                            currentBatch = batch.iterator();
+                        }
+                        return currentBatch.hasNext();
+                    } catch (StatusRuntimeException sre) {
+                        throw mapReadFailure(sre);
+                    }
+                }
+
+                @Override
+                public ActionProfileMember next() {
+                    if (!hasNext()) throw new NoSuchElementException();
+                    return currentBatch.next();
+                }
+            };
+        }
+
+        private ActionProfileMember parseActionProfileMember(
+                p4.v1.P4RuntimeOuterClass.ActionProfileMember proto) {
+            ActionProfileInfo info = pipe.p4info().actionProfileById(proto.getActionProfileId());
+            if (info == null) {
+                throw new P4PipelineException(
+                        "device returned action profile id " + proto.getActionProfileId()
+                                + " which is not in the bound P4Info; pipeline may have"
+                                + " drifted since bindPipeline");
+            }
+            ActionInstance action = parseAction(proto.getAction());
+            return new ActionProfileMember(info.name(), proto.getMemberId(), action);
+        }
+
+        private Optional<ActionProfileMember> collapseToOne(List<ActionProfileMember> all) {
+            if (all.isEmpty()) return Optional.empty();
+            if (all.size() == 1) return Optional.of(all.get(0));
+            throw new P4OperationException(
+                    "expected at most one entry from action profile '" + actionProfileName
+                            + "', got " + all.size() + " entries",
+                    OperationType.READ,
+                    ErrorCode.UNKNOWN,
+                    List.of());
+        }
+    }
+
+    /**
+     * Action-profile-group-read counterpart of
+     * {@link ActionProfileMemberReadQueryImpl}. Builds a {@code ReadRequest}
+     * that targets a single action profile (optionally narrowed to one
+     * group) and parses each response Entity into an
+     * {@link ActionProfileGroup} with its repeated {@link WeightedMember}
+     * list, surfacing the {@code watch_port} bytes when the wire
+     * {@code watch_kind} oneof is set to that variant.
+     */
+    private final class ActionProfileGroupReadQueryImpl implements ActionProfileGroupReadQuery {
+
+        private final String actionProfileName;
+        private final Pipeline pipe;
+        private final List<Predicate<? super ActionProfileGroup>> filters = new ArrayList<>();
+        private Long groupIdFilter;
+
+        ActionProfileGroupReadQueryImpl(String actionProfileName, Pipeline pipe) {
+            this.actionProfileName = actionProfileName;
+            this.pipe = pipe;
+        }
+
+        @Override
+        public ActionProfileGroupReadQuery groupId(long groupId) {
+            this.groupIdFilter = groupId;
+            return this;
+        }
+
+        @Override
+        public ActionProfileGroupReadQuery where(Predicate<? super ActionProfileGroup> filter) {
+            Objects.requireNonNull(filter, "filter");
+            filters.add(filter);
+            return this;
+        }
+
+        private boolean accept(ActionProfileGroup e) {
+            for (Predicate<? super ActionProfileGroup> p : filters) {
+                if (!p.test(e)) return false;
+            }
+            return true;
+        }
+
+        @Override
+        public List<ActionProfileGroup> all() {
+            return awaitRead(allAsync());
+        }
+
+        @Override
+        public Optional<ActionProfileGroup> one() {
+            return collapseToOne(all());
+        }
+
+        @Override
+        public CompletableFuture<List<ActionProfileGroup>> allAsync() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) {
+                CompletableFuture<List<ActionProfileGroup>> f = new CompletableFuture<>();
+                f.completeExceptionally(gate);
+                return f;
+            }
+            StreamSession sess = session.get();
+            if (sess == null) {
+                CompletableFuture<List<ActionProfileGroup>> f = new CompletableFuture<>();
+                f.completeExceptionally(new P4ConnectionException("no active session"));
+                return f;
+            }
+
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+            CompletableFuture<List<ActionProfileGroup>> result = new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it =
+                                P4RuntimeGrpc.newBlockingStub(sess.channel)
+                                        .withDeadlineAfter(30, TimeUnit.SECONDS)
+                                        .read(req);
+                        List<ActionProfileGroup> entries = new ArrayList<>();
+                        while (it.hasNext()) {
+                            extractInto(it.next(), entries);
+                        }
+                        List<ActionProfileGroup> filtered;
+                        if (filters.isEmpty()) {
+                            filtered = entries;
+                        } else {
+                            filtered = new ArrayList<>(entries.size());
+                            for (ActionProfileGroup e : entries) {
+                                if (accept(e)) filtered.add(e);
+                            }
+                        }
+                        result.complete(filtered);
+                    } catch (StatusRuntimeException sre) {
+                        result.completeExceptionally(mapReadFailure(sre));
+                    } catch (RuntimeException re) {
+                        result.completeExceptionally(re);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+            }
+            return result;
+        }
+
+        @Override
+        public CompletableFuture<Optional<ActionProfileGroup>> oneAsync() {
+            return allAsync().thenApply(this::collapseToOne);
+        }
+
+        @Override
+        public Stream<ActionProfileGroup> stream() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) throw gate;
+            StreamSession sess = session.get();
+            if (sess == null) throw new P4ConnectionException("no active session");
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+
+            Context.CancellableContext ctx = Context.current().withCancellation();
+            CompletableFuture<Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse>> startFuture =
+                    new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it = ctx.call(() ->
+                                P4RuntimeGrpc.newBlockingStub(sess.channel).read(req));
+                        startFuture.complete(it);
+                    } catch (Exception e) {
+                        startFuture.completeExceptionally(e);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("switch is closed", ree);
+            }
+
+            Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter;
+            try {
+                respIter = startFuture.get(30, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                ctx.cancel(null);
+                throw new P4ConnectionException(
+                        "action-profile group read RPC timed out before stream start", te);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                ctx.cancel(null);
+                throw new P4ConnectionException(
+                        "interrupted while starting action-profile group read stream", ie);
+            } catch (ExecutionException ee) {
+                ctx.cancel(null);
+                Throwable cause = ee.getCause();
+                if (cause instanceof RuntimeException re) throw re;
+                throw new P4ConnectionException(
+                        "action-profile group read RPC failed to start", cause);
+            }
+
+            Iterator<ActionProfileGroup> entryIter = flatten(respIter);
+            Stream<ActionProfileGroup> base = StreamSupport.stream(
+                    Spliterators.spliteratorUnknownSize(entryIter, Spliterator.ORDERED),
+                    /* parallel */ false
+            ).onClose(() -> ctx.cancel(null));
+            return filters.isEmpty() ? base : base.filter(this::accept);
+        }
+
+        // ---------- helpers ------------------------------------------------
+
+        private p4.v1.P4RuntimeOuterClass.ReadRequest buildReadRequest() {
+            int actionProfileId = pipe.p4info().actionProfile(actionProfileName).id();
+            var gBuilder = p4.v1.P4RuntimeOuterClass.ActionProfileGroup.newBuilder()
+                    .setActionProfileId(actionProfileId);
+            if (groupIdFilter != null) {
+                gBuilder.setGroupId(groupIdFilter.intValue());
+            }
+            var entity = p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                    .setActionProfileGroup(gBuilder.build())
+                    .build();
+            return p4.v1.P4RuntimeOuterClass.ReadRequest.newBuilder()
+                    .setDeviceId(deviceId)
+                    .addEntities(entity)
+                    .build();
+        }
+
+        private void extractInto(p4.v1.P4RuntimeOuterClass.ReadResponse resp,
+                                 List<ActionProfileGroup> sink) {
+            for (p4.v1.P4RuntimeOuterClass.Entity ent : resp.getEntitiesList()) {
+                if (!ent.hasActionProfileGroup()) continue;
+                sink.add(parseActionProfileGroup(ent.getActionProfileGroup()));
+            }
+        }
+
+        private Iterator<ActionProfileGroup> flatten(
+                Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter) {
+            return new Iterator<>() {
+                private Iterator<ActionProfileGroup> currentBatch = Collections.emptyIterator();
+
+                @Override
+                public boolean hasNext() {
+                    try {
+                        while (!currentBatch.hasNext() && respIter.hasNext()) {
+                            List<ActionProfileGroup> batch = new ArrayList<>();
+                            extractInto(respIter.next(), batch);
+                            currentBatch = batch.iterator();
+                        }
+                        return currentBatch.hasNext();
+                    } catch (StatusRuntimeException sre) {
+                        throw mapReadFailure(sre);
+                    }
+                }
+
+                @Override
+                public ActionProfileGroup next() {
+                    if (!hasNext()) throw new NoSuchElementException();
+                    return currentBatch.next();
+                }
+            };
+        }
+
+        private ActionProfileGroup parseActionProfileGroup(
+                p4.v1.P4RuntimeOuterClass.ActionProfileGroup proto) {
+            ActionProfileInfo info = pipe.p4info().actionProfileById(proto.getActionProfileId());
+            if (info == null) {
+                throw new P4PipelineException(
+                        "device returned action profile id " + proto.getActionProfileId()
+                                + " which is not in the bound P4Info; pipeline may have"
+                                + " drifted since bindPipeline");
+            }
+            List<WeightedMember> members = new ArrayList<>(proto.getMembersCount());
+            for (var m : proto.getMembersList()) {
+                Bytes watchPort = m.hasWatchPort()
+                        ? Bytes.of(m.getWatchPort().toByteArray())
+                        : null;
+                members.add(new WeightedMember(m.getMemberId(), m.getWeight(), watchPort));
+            }
+            return new ActionProfileGroup(
+                    info.name(),
+                    proto.getGroupId(),
+                    proto.getMaxSize(),
+                    members);
+        }
+
+        private Optional<ActionProfileGroup> collapseToOne(List<ActionProfileGroup> all) {
+            if (all.isEmpty()) return Optional.empty();
+            if (all.size() == 1) return Optional.of(all.get(0));
+            throw new P4OperationException(
+                    "expected at most one entry from action profile '" + actionProfileName
+                            + "', got " + all.size() + " entries",
+                    OperationType.READ,
+                    ErrorCode.UNKNOWN,
+                    List.of());
+        }
+    }
+
+    /**
+     * Builds a jp4 {@link ActionInstance} from a wire
+     * {@code p4.v1.Action} proto, resolving the action and parameter ids
+     * back to their P4Info-declared names. Used by the action-profile-member
+     * read path; mirrors the parser logic in
+     * {@link EntryProto#fromProto(p4.v1.P4RuntimeOuterClass.TableEntry, io.github.zhh2001.jp4.pipeline.P4Info)}
+     * but produces a stand-alone {@code ActionInstance} rather than a
+     * {@link TableEntry}.
+     *
+     * <p>Pipeline drift is surfaced as {@link P4PipelineException}; a
+     * device that returns an unknown action or parameter id fails the
+     * read loudly rather than silently dropping data.
+     */
+    private ActionInstance parseAction(p4.v1.P4RuntimeOuterClass.Action proto) {
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; cannot parse action returned by device");
+        }
+        ActionInfo actionInfo = pipe.p4info().actionInfoById(proto.getActionId());
+        if (actionInfo == null) {
+            throw new P4PipelineException(
+                    "device returned action id " + proto.getActionId()
+                            + " which is not in the bound P4Info; pipeline may have"
+                            + " drifted since bindPipeline");
+        }
+        Map<String, Bytes> params = new LinkedHashMap<>(proto.getParamsCount() * 2);
+        for (p4.v1.P4RuntimeOuterClass.Action.Param p : proto.getParamsList()) {
+            ActionParamInfo paramInfo = actionInfo.paramById(p.getParamId());
+            if (paramInfo == null) {
+                throw new P4PipelineException(
+                        "device returned action param id " + p.getParamId()
+                                + " for action '" + actionInfo.name() + "' which is not in"
+                                + " the bound P4Info; pipeline may have drifted since bindPipeline");
+            }
+            params.put(paramInfo.name(), Bytes.of(p.getValue().toByteArray()));
+        }
+        return ActionInstance.of(actionInfo.name(), params);
     }
 }

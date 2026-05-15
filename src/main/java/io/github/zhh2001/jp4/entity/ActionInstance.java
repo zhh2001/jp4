@@ -31,6 +31,29 @@ public final class ActionInstance {
         this.params = Map.copyOf(params);
     }
 
+    /**
+     * Constructs an {@code ActionInstance} from an already-resolved name and
+     * parameter map. Intended for read-back paths that reconstruct entities
+     * from wire {@code Action} messages — for example
+     * {@code P4Switch.readActionProfileMember} — without going through the
+     * {@link ActionBuilder} chain.
+     *
+     * <p>The {@code params} map is captured through {@link Map#copyOf} so
+     * later mutations of the caller's map do not affect the resulting
+     * instance. No P4Info validation is performed; callers that need
+     * validation are expected to perform it at the wire boundary.
+     *
+     * @param name   fully-qualified action name; never {@code null}
+     * @param params parameter values by name; never {@code null}, copied
+     *               defensively
+     * @return a new {@code ActionInstance}
+     * @throws NullPointerException if {@code name} or {@code params} is null
+     * @since 1.4.0
+     */
+    public static ActionInstance of(String name, Map<String, Bytes> params) {
+        return new ActionInstance(name, params);
+    }
+
     /** Fully-qualified action name, e.g. {@code "MyIngress.set_egress"}. */
     public String name() {
         return name;
