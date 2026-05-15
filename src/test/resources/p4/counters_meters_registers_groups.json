@@ -1,0 +1,532 @@
+{
+  "header_types" : [
+    {
+      "name" : "scalars_0",
+      "id" : 0,
+      "fields" : [
+        ["meter_color_0", 2, false],
+        ["_padding_0", 6, false]
+      ]
+    },
+    {
+      "name" : "standard_metadata",
+      "id" : 1,
+      "fields" : [
+        ["ingress_port", 9, false],
+        ["egress_spec", 9, false],
+        ["egress_port", 9, false],
+        ["instance_type", 32, false],
+        ["packet_length", 32, false],
+        ["enq_timestamp", 32, false],
+        ["enq_qdepth", 19, false],
+        ["deq_timedelta", 32, false],
+        ["deq_qdepth", 19, false],
+        ["ingress_global_timestamp", 48, false],
+        ["egress_global_timestamp", 48, false],
+        ["mcast_grp", 16, false],
+        ["egress_rid", 16, false],
+        ["checksum_error", 1, false],
+        ["parser_error", 32, false],
+        ["priority", 3, false],
+        ["_padding", 3, false]
+      ]
+    },
+    {
+      "name" : "packet_out_h",
+      "id" : 2,
+      "fields" : [
+        ["egress_port", 9, false],
+        ["_pad", 7, false]
+      ]
+    },
+    {
+      "name" : "ethernet_t",
+      "id" : 3,
+      "fields" : [
+        ["dstAddr", 48, false],
+        ["srcAddr", 48, false],
+        ["etherType", 16, false]
+      ]
+    }
+  ],
+  "headers" : [
+    {
+      "name" : "scalars",
+      "id" : 0,
+      "header_type" : "scalars_0",
+      "metadata" : true,
+      "pi_omit" : true
+    },
+    {
+      "name" : "standard_metadata",
+      "id" : 1,
+      "header_type" : "standard_metadata",
+      "metadata" : true,
+      "pi_omit" : true
+    },
+    {
+      "name" : "packet_out",
+      "id" : 2,
+      "header_type" : "packet_out_h",
+      "metadata" : false,
+      "pi_omit" : true
+    },
+    {
+      "name" : "ethernet",
+      "id" : 3,
+      "header_type" : "ethernet_t",
+      "metadata" : false,
+      "pi_omit" : true
+    }
+  ],
+  "header_stacks" : [],
+  "header_union_types" : [],
+  "header_unions" : [],
+  "header_union_stacks" : [],
+  "field_lists" : [],
+  "errors" : [
+    ["NoError", 0],
+    ["PacketTooShort", 1],
+    ["NoMatch", 2],
+    ["StackOutOfBounds", 3],
+    ["HeaderTooShort", 4],
+    ["ParserTimeout", 5],
+    ["ParserInvalidArgument", 6]
+  ],
+  "enums" : [],
+  "parsers" : [
+    {
+      "name" : "parser",
+      "id" : 0,
+      "init_state" : "start",
+      "parse_states" : [
+        {
+          "name" : "start",
+          "id" : 0,
+          "parser_ops" : [],
+          "transitions" : [
+            {
+              "type" : "hexstr",
+              "value" : "0x00ff",
+              "mask" : null,
+              "next_state" : "parse_packet_out"
+            },
+            {
+              "type" : "default",
+              "value" : null,
+              "mask" : null,
+              "next_state" : "parse_ethernet"
+            }
+          ],
+          "transition_key" : [
+            {
+              "type" : "field",
+              "value" : ["standard_metadata", "ingress_port"]
+            }
+          ]
+        },
+        {
+          "name" : "parse_packet_out",
+          "id" : 1,
+          "parser_ops" : [
+            {
+              "parameters" : [
+                {
+                  "type" : "regular",
+                  "value" : "packet_out"
+                }
+              ],
+              "op" : "extract"
+            }
+          ],
+          "transitions" : [
+            {
+              "type" : "default",
+              "value" : null,
+              "mask" : null,
+              "next_state" : "parse_ethernet"
+            }
+          ],
+          "transition_key" : []
+        },
+        {
+          "name" : "parse_ethernet",
+          "id" : 2,
+          "parser_ops" : [
+            {
+              "parameters" : [
+                {
+                  "type" : "regular",
+                  "value" : "ethernet"
+                }
+              ],
+              "op" : "extract"
+            }
+          ],
+          "transitions" : [
+            {
+              "type" : "default",
+              "value" : null,
+              "mask" : null,
+              "next_state" : null
+            }
+          ],
+          "transition_key" : []
+        }
+      ]
+    }
+  ],
+  "parse_vsets" : [],
+  "deparsers" : [
+    {
+      "name" : "deparser",
+      "id" : 0,
+      "source_info" : {
+        "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+        "line" : 111,
+        "column" : 8,
+        "source_fragment" : "MyDeparser"
+      },
+      "order" : ["ethernet"],
+      "primitives" : []
+    }
+  ],
+  "meter_arrays" : [
+    {
+      "name" : "MyIngress.my_meter",
+      "id" : 0,
+      "source_info" : {
+        "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+        "line" : 79,
+        "column" : 31,
+        "source_fragment" : "my_meter"
+      },
+      "is_direct" : false,
+      "size" : 32,
+      "rate_count" : 2,
+      "type" : "bytes"
+    }
+  ],
+  "counter_arrays" : [
+    {
+      "name" : "MyIngress.my_counter",
+      "id" : 0,
+      "source_info" : {
+        "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+        "line" : 78,
+        "column" : 47,
+        "source_fragment" : "my_counter"
+      },
+      "size" : 64,
+      "is_direct" : false
+    }
+  ],
+  "register_arrays" : [
+    {
+      "name" : "MyIngress.my_register",
+      "id" : 0,
+      "source_info" : {
+        "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+        "line" : 80,
+        "column" : 26,
+        "source_fragment" : "my_register"
+      },
+      "size" : 16,
+      "bitwidth" : 32
+    }
+  ],
+  "calculations" : [],
+  "learn_lists" : [],
+  "actions" : [
+    {
+      "name" : "NoAction",
+      "id" : 0,
+      "runtime_data" : [],
+      "primitives" : []
+    },
+    {
+      "name" : "MyIngress.set_egress",
+      "id" : 1,
+      "runtime_data" : [
+        {
+          "name" : "port",
+          "bitwidth" : 9
+        }
+      ],
+      "primitives" : [
+        {
+          "op" : "assign",
+          "parameters" : [
+            {
+              "type" : "field",
+              "value" : ["standard_metadata", "egress_spec"]
+            },
+            {
+              "type" : "runtime_data",
+              "value" : 0
+            }
+          ],
+          "source_info" : {
+            "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+            "line" : 84,
+            "column" : 8,
+            "source_fragment" : "std.egress_spec = port"
+          }
+        }
+      ]
+    },
+    {
+      "name" : "MyIngress.send_to_cpu",
+      "id" : 2,
+      "runtime_data" : [],
+      "primitives" : [
+        {
+          "op" : "assign",
+          "parameters" : [
+            {
+              "type" : "field",
+              "value" : ["standard_metadata", "egress_spec"]
+            },
+            {
+              "type" : "hexstr",
+              "value" : "0x00ff"
+            }
+          ],
+          "source_info" : {
+            "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+            "line" : 88,
+            "column" : 8,
+            "source_fragment" : "std.egress_spec = 255"
+          }
+        }
+      ]
+    },
+    {
+      "name" : "counters_meters_registers_groups99",
+      "id" : 3,
+      "runtime_data" : [],
+      "primitives" : [
+        {
+          "op" : "count",
+          "parameters" : [
+            {
+              "type" : "counter_array",
+              "value" : "MyIngress.my_counter"
+            },
+            {
+              "type" : "hexstr",
+              "value" : "0x00000000"
+            }
+          ],
+          "source_info" : {
+            "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+            "line" : 99,
+            "column" : 8,
+            "source_fragment" : "my_counter.count(32w0)"
+          }
+        },
+        {
+          "op" : "execute_meter",
+          "parameters" : [
+            {
+              "type" : "meter_array",
+              "value" : "MyIngress.my_meter"
+            },
+            {
+              "type" : "hexstr",
+              "value" : "0x00000000"
+            },
+            {
+              "type" : "field",
+              "value" : ["scalars", "meter_color_0"]
+            }
+          ],
+          "source_info" : {
+            "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+            "line" : 101,
+            "column" : 8,
+            "source_fragment" : "my_meter.execute_meter<bit<2>>(32w0, meter_color)"
+          }
+        },
+        {
+          "op" : "register_write",
+          "parameters" : [
+            {
+              "type" : "register_array",
+              "value" : "MyIngress.my_register"
+            },
+            {
+              "type" : "hexstr",
+              "value" : "0x00000000"
+            },
+            {
+              "type" : "hexstr",
+              "value" : "0x00000000"
+            }
+          ],
+          "source_info" : {
+            "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+            "line" : 102,
+            "column" : 8,
+            "source_fragment" : "my_register.write(32w0, 32w0)"
+          }
+        }
+      ]
+    }
+  ],
+  "pipelines" : [
+    {
+      "name" : "ingress",
+      "id" : 0,
+      "source_info" : {
+        "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+        "line" : 75,
+        "column" : 8,
+        "source_fragment" : "MyIngress"
+      },
+      "init_table" : "tbl_counters_meters_registers_groups99",
+      "tables" : [
+        {
+          "name" : "tbl_counters_meters_registers_groups99",
+          "id" : 0,
+          "source_info" : {
+            "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+            "line" : 99,
+            "column" : 8,
+            "source_fragment" : "my_counter.count(32w0); ..."
+          },
+          "key" : [],
+          "match_type" : "exact",
+          "type" : "simple",
+          "max_size" : 1024,
+          "with_counters" : false,
+          "support_timeout" : false,
+          "direct_meters" : null,
+          "action_ids" : [3],
+          "actions" : ["counters_meters_registers_groups99"],
+          "base_default_next" : "MyIngress.lb_table",
+          "next_tables" : {
+            "counters_meters_registers_groups99" : "MyIngress.lb_table"
+          },
+          "default_entry" : {
+            "action_id" : 3,
+            "action_const" : true,
+            "action_data" : [],
+            "action_entry_const" : true
+          }
+        },
+        {
+          "name" : "MyIngress.lb_table",
+          "id" : 1,
+          "source_info" : {
+            "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+            "line" : 91,
+            "column" : 10,
+            "source_fragment" : "lb_table"
+          },
+          "key" : [
+            {
+              "match_type" : "exact",
+              "name" : "hdr.ethernet.srcAddr",
+              "target" : ["ethernet", "srcAddr"],
+              "mask" : null
+            }
+          ],
+          "match_type" : "exact",
+          "type" : "indirect_ws",
+          "action_profile" : "MyIngress.my_selector",
+          "max_size" : 64,
+          "with_counters" : false,
+          "support_timeout" : false,
+          "direct_meters" : null,
+          "action_ids" : [1, 2, 0],
+          "actions" : ["MyIngress.set_egress", "MyIngress.send_to_cpu", "NoAction"],
+          "base_default_next" : null,
+          "next_tables" : {
+            "MyIngress.set_egress" : null,
+            "MyIngress.send_to_cpu" : null,
+            "NoAction" : null
+          }
+        }
+      ],
+      "action_profiles" : [
+        {
+          "name" : "MyIngress.my_selector",
+          "id" : 0,
+          "source_info" : {
+            "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+            "line" : 81,
+            "column" : 56,
+            "source_fragment" : "my_selector"
+          },
+          "max_size" : 128,
+          "selector" : {
+            "algo" : "crc16",
+            "input" : []
+          }
+        }
+      ],
+      "conditionals" : []
+    },
+    {
+      "name" : "egress",
+      "id" : 1,
+      "source_info" : {
+        "filename" : "src/test/resources/p4/counters_meters_registers_groups.p4",
+        "line" : 107,
+        "column" : 8,
+        "source_fragment" : "MyEgress"
+      },
+      "init_table" : null,
+      "tables" : [],
+      "action_profiles" : [],
+      "conditionals" : []
+    }
+  ],
+  "checksums" : [],
+  "force_arith" : [],
+  "extern_instances" : [],
+  "field_aliases" : [
+    [
+      "queueing_metadata.enq_timestamp",
+      ["standard_metadata", "enq_timestamp"]
+    ],
+    [
+      "queueing_metadata.enq_qdepth",
+      ["standard_metadata", "enq_qdepth"]
+    ],
+    [
+      "queueing_metadata.deq_timedelta",
+      ["standard_metadata", "deq_timedelta"]
+    ],
+    [
+      "queueing_metadata.deq_qdepth",
+      ["standard_metadata", "deq_qdepth"]
+    ],
+    [
+      "intrinsic_metadata.ingress_global_timestamp",
+      ["standard_metadata", "ingress_global_timestamp"]
+    ],
+    [
+      "intrinsic_metadata.egress_global_timestamp",
+      ["standard_metadata", "egress_global_timestamp"]
+    ],
+    [
+      "intrinsic_metadata.mcast_grp",
+      ["standard_metadata", "mcast_grp"]
+    ],
+    [
+      "intrinsic_metadata.egress_rid",
+      ["standard_metadata", "egress_rid"]
+    ],
+    [
+      "intrinsic_metadata.priority",
+      ["standard_metadata", "priority"]
+    ]
+  ],
+  "program" : "src/test/resources/p4/counters_meters_registers_groups.p4i",
+  "__meta__" : {
+    "version" : [2, 23],
+    "compiler" : "https://github.com/p4lang/p4c"
+  }
+}

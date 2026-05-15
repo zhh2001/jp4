@@ -1,0 +1,127 @@
+# proto-file: p4/config/v1/p4info.proto
+# proto-message: p4.config.v1.P4Info
+
+pkg_info {
+  arch: "v1model"
+}
+tables {
+  preamble {
+    id: 39205382
+    name: "MyIngress.lb_table"
+    alias: "lb_table"
+  }
+  match_fields {
+    id: 1
+    name: "hdr.ethernet.srcAddr"
+    bitwidth: 48
+    match_type: EXACT
+  }
+  action_refs {
+    id: 25797781
+  }
+  action_refs {
+    id: 22952082
+  }
+  action_refs {
+    id: 21257015
+  }
+  initial_default_action {
+    action_id: 21257015
+  }
+  implementation_id: 287486194
+  size: 64
+}
+actions {
+  preamble {
+    id: 21257015
+    name: "NoAction"
+    alias: "NoAction"
+    annotations: "@noWarn(\"unused\")"
+  }
+}
+actions {
+  preamble {
+    id: 25797781
+    name: "MyIngress.set_egress"
+    alias: "set_egress"
+  }
+  params {
+    id: 1
+    name: "port"
+    bitwidth: 9
+  }
+}
+actions {
+  preamble {
+    id: 22952082
+    name: "MyIngress.send_to_cpu"
+    alias: "send_to_cpu"
+  }
+}
+action_profiles {
+  preamble {
+    id: 287486194
+    name: "MyIngress.my_selector"
+    alias: "my_selector"
+  }
+  table_ids: 39205382
+  with_selector: true
+  size: 128
+}
+counters {
+  preamble {
+    id: 318674728
+    name: "MyIngress.my_counter"
+    alias: "my_counter"
+  }
+  spec {
+    unit: BOTH
+  }
+  size: 64
+}
+meters {
+  preamble {
+    id: 348122430
+    name: "MyIngress.my_meter"
+    alias: "my_meter"
+  }
+  spec {
+    unit: BYTES
+  }
+  size: 32
+}
+controller_packet_metadata {
+  preamble {
+    id: 74440427
+    name: "packet_out"
+    alias: "packet_out"
+    annotations: "@controller_header(\"packet_out\")"
+  }
+  metadata {
+    id: 1
+    name: "egress_port"
+    bitwidth: 9
+  }
+  metadata {
+    id: 2
+    name: "_pad"
+    bitwidth: 7
+  }
+}
+registers {
+  preamble {
+    id: 379676054
+    name: "MyIngress.my_register"
+    alias: "my_register"
+  }
+  type_spec {
+    bitstring {
+      bit {
+        bitwidth: 32
+      }
+    }
+  }
+  size: 16
+}
+type_info {
+}
