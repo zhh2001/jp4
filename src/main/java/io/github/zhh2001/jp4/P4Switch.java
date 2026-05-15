@@ -1,5 +1,6 @@
 package io.github.zhh2001.jp4;
 
+import io.github.zhh2001.jp4.entity.CounterEntry;
 import io.github.zhh2001.jp4.entity.DigestConfig;
 import io.github.zhh2001.jp4.entity.DigestEvent;
 import io.github.zhh2001.jp4.entity.DropEvent;
@@ -15,6 +16,7 @@ import io.github.zhh2001.jp4.error.P4ConnectionException;
 import io.github.zhh2001.jp4.error.P4OperationException;
 import io.github.zhh2001.jp4.error.P4PipelineException;
 import io.github.zhh2001.jp4.match.Match;
+import io.github.zhh2001.jp4.pipeline.CounterInfo;
 import io.grpc.Context;
 import io.grpc.StatusRuntimeException;
 import io.grpc.protobuf.StatusProto;
@@ -744,6 +746,39 @@ public final class P4Switch implements AutoCloseable {
         // Eager table-existence check; throws P4PipelineException with known-list.
         pipe.p4info().table(tableName);
         return new ReadQueryImpl(tableName, pipe);
+    }
+
+    /**
+     * Starts a read against the named counter array. Returns a
+     * {@link CounterReadQuery} builder; call {@link CounterReadQuery#all()},
+     * {@link CounterReadQuery#one()}, or {@link CounterReadQuery#stream()}
+     * on it to dispatch the read. Optionally narrow with
+     * {@link CounterReadQuery#index(long)} (server-side filter via the
+     * P4Runtime {@code Index} field) or
+     * {@link CounterReadQuery#where(java.util.function.Predicate)}
+     * (client-side filter applied to results after fetch).
+     *
+     * <p>The counter name is validated eagerly against the bound P4Info —
+     * calling {@code readCounter("typo")} fails immediately with a
+     * known-list message rather than deferring the failure to a terminal
+     * call. Mirrors the eagerness of {@link #read(String)}.
+     *
+     * @throws P4ConnectionException if the switch is closed or the stream is broken
+     * @throws P4PipelineException   if no pipeline is bound or the counter name is unknown
+     * @since 1.4.0
+     */
+    public CounterReadQuery readCounter(String counterName) {
+        Objects.requireNonNull(counterName, "counterName");
+        P4ConnectionException gate = readabilityException();
+        if (gate != null) throw gate;
+        Pipeline pipe = pipeline.get();
+        if (pipe == null) {
+            throw new P4PipelineException(
+                    "no pipeline bound; call bindPipeline() or loadPipeline() first");
+        }
+        // Eager existence check; throws P4PipelineException with known-list on miss.
+        pipe.p4info().counter(counterName);
+        return new CounterReadQueryImpl(counterName, pipe);
     }
 
     /**
@@ -2069,6 +2104,247 @@ public final class P4Switch implements AutoCloseable {
             if (all.size() == 1) return Optional.of(all.get(0));
             throw new P4OperationException(
                     "expected at most one entry from table '" + tableName
+                            + "', got " + all.size() + " entries",
+                    OperationType.READ,
+                    ErrorCode.UNKNOWN,
+                    List.of());
+        }
+    }
+
+    /**
+     * Counter-read counterpart of {@link ReadQueryImpl}. Holds the resolved
+     * counter name + Pipeline snapshot, an optional index filter, and an
+     * accumulated list of client-side {@code where} predicates. Builds a
+     * {@code ReadRequest} that targets a single counter array (optionally
+     * narrowed to one cell), dispatches it through the outbound executor,
+     * and parses each response Entity back into a {@link CounterEntry}.
+     */
+    private final class CounterReadQueryImpl implements CounterReadQuery {
+
+        private final String counterName;
+        private final Pipeline pipe;
+        private final List<Predicate<? super CounterEntry>> filters = new ArrayList<>();
+        private Long indexFilter;        // null = read all cells; non-null = single-cell read
+
+        CounterReadQueryImpl(String counterName, Pipeline pipe) {
+            this.counterName = counterName;
+            this.pipe = pipe;
+        }
+
+        @Override
+        public CounterReadQuery index(long index) {
+            this.indexFilter = index;
+            return this;
+        }
+
+        @Override
+        public CounterReadQuery where(Predicate<? super CounterEntry> filter) {
+            Objects.requireNonNull(filter, "filter");
+            filters.add(filter);
+            return this;
+        }
+
+        private boolean accept(CounterEntry e) {
+            for (Predicate<? super CounterEntry> p : filters) {
+                if (!p.test(e)) return false;
+            }
+            return true;
+        }
+
+        @Override
+        public List<CounterEntry> all() {
+            return awaitRead(allAsync());
+        }
+
+        @Override
+        public Optional<CounterEntry> one() {
+            return collapseToOne(all());
+        }
+
+        @Override
+        public CompletableFuture<List<CounterEntry>> allAsync() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) {
+                CompletableFuture<List<CounterEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(gate);
+                return f;
+            }
+            StreamSession sess = session.get();
+            if (sess == null) {
+                CompletableFuture<List<CounterEntry>> f = new CompletableFuture<>();
+                f.completeExceptionally(new P4ConnectionException("no active session"));
+                return f;
+            }
+
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+            CompletableFuture<List<CounterEntry>> result = new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it =
+                                P4RuntimeGrpc.newBlockingStub(sess.channel)
+                                        .withDeadlineAfter(30, TimeUnit.SECONDS)
+                                        .read(req);
+                        List<CounterEntry> entries = new ArrayList<>();
+                        while (it.hasNext()) {
+                            extractInto(it.next(), entries);
+                        }
+                        List<CounterEntry> filtered;
+                        if (filters.isEmpty()) {
+                            filtered = entries;
+                        } else {
+                            filtered = new ArrayList<>(entries.size());
+                            for (CounterEntry e : entries) {
+                                if (accept(e)) filtered.add(e);
+                            }
+                        }
+                        result.complete(filtered);
+                    } catch (StatusRuntimeException sre) {
+                        result.completeExceptionally(mapReadFailure(sre));
+                    } catch (RuntimeException re) {
+                        result.completeExceptionally(re);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                result.completeExceptionally(new P4ConnectionException("switch is closed", ree));
+            }
+            return result;
+        }
+
+        @Override
+        public CompletableFuture<Optional<CounterEntry>> oneAsync() {
+            return allAsync().thenApply(this::collapseToOne);
+        }
+
+        @Override
+        public Stream<CounterEntry> stream() {
+            P4ConnectionException gate = readabilityException();
+            if (gate != null) throw gate;
+            StreamSession sess = session.get();
+            if (sess == null) throw new P4ConnectionException("no active session");
+            p4.v1.P4RuntimeOuterClass.ReadRequest req = buildReadRequest();
+
+            Context.CancellableContext ctx = Context.current().withCancellation();
+            CompletableFuture<Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse>> startFuture =
+                    new CompletableFuture<>();
+            try {
+                outboundExecutor.execute(() -> {
+                    try {
+                        Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> it = ctx.call(() ->
+                                P4RuntimeGrpc.newBlockingStub(sess.channel).read(req));
+                        startFuture.complete(it);
+                    } catch (Exception e) {
+                        startFuture.completeExceptionally(e);
+                    }
+                });
+            } catch (RejectedExecutionException ree) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("switch is closed", ree);
+            }
+
+            Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter;
+            try {
+                respIter = startFuture.get(30, TimeUnit.SECONDS);
+            } catch (TimeoutException te) {
+                ctx.cancel(null);
+                throw new P4ConnectionException("counter read RPC timed out before stream start", te);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                ctx.cancel(null);
+                throw new P4ConnectionException("interrupted while starting counter read stream", ie);
+            } catch (ExecutionException ee) {
+                ctx.cancel(null);
+                Throwable cause = ee.getCause();
+                if (cause instanceof RuntimeException re) throw re;
+                throw new P4ConnectionException("counter read RPC failed to start", cause);
+            }
+
+            Iterator<CounterEntry> entryIter = flatten(respIter);
+            Stream<CounterEntry> base = StreamSupport.stream(
+                    Spliterators.spliteratorUnknownSize(entryIter, Spliterator.ORDERED),
+                    /* parallel */ false
+            ).onClose(() -> ctx.cancel(null));
+            return filters.isEmpty() ? base : base.filter(this::accept);
+        }
+
+        // ---------- helpers ------------------------------------------------
+
+        private p4.v1.P4RuntimeOuterClass.ReadRequest buildReadRequest() {
+            // Eager counter_id resolution; pipeline snapshot captured at .readCounter() time.
+            int counterId = pipe.p4info().counter(counterName).id();
+            var ceBuilder = p4.v1.P4RuntimeOuterClass.CounterEntry.newBuilder()
+                    .setCounterId(counterId);
+            if (indexFilter != null) {
+                ceBuilder.setIndex(p4.v1.P4RuntimeOuterClass.Index.newBuilder()
+                        .setIndex(indexFilter)
+                        .build());
+            }
+            var entity = p4.v1.P4RuntimeOuterClass.Entity.newBuilder()
+                    .setCounterEntry(ceBuilder.build())
+                    .build();
+            return p4.v1.P4RuntimeOuterClass.ReadRequest.newBuilder()
+                    .setDeviceId(deviceId)
+                    .addEntities(entity)
+                    .build();
+        }
+
+        private void extractInto(p4.v1.P4RuntimeOuterClass.ReadResponse resp,
+                                 List<CounterEntry> sink) {
+            for (p4.v1.P4RuntimeOuterClass.Entity ent : resp.getEntitiesList()) {
+                if (!ent.hasCounterEntry()) continue;   // tolerate mixed-entity responses
+                sink.add(parseCounterEntry(ent.getCounterEntry()));
+            }
+        }
+
+        private Iterator<CounterEntry> flatten(
+                Iterator<p4.v1.P4RuntimeOuterClass.ReadResponse> respIter) {
+            return new Iterator<>() {
+                private Iterator<CounterEntry> currentBatch = Collections.emptyIterator();
+
+                @Override
+                public boolean hasNext() {
+                    try {
+                        while (!currentBatch.hasNext() && respIter.hasNext()) {
+                            List<CounterEntry> batch = new ArrayList<>();
+                            extractInto(respIter.next(), batch);
+                            currentBatch = batch.iterator();
+                        }
+                        return currentBatch.hasNext();
+                    } catch (StatusRuntimeException sre) {
+                        throw mapReadFailure(sre);
+                    }
+                }
+
+                @Override
+                public CounterEntry next() {
+                    if (!hasNext()) throw new NoSuchElementException();
+                    return currentBatch.next();
+                }
+            };
+        }
+
+        private CounterEntry parseCounterEntry(p4.v1.P4RuntimeOuterClass.CounterEntry proto) {
+            // Reverse-lookup counter_id → name. Defensive against P4Info drift —
+            // a wire counter_id we cannot resolve surfaces loudly rather than
+            // being silently rebound to the eagerly-resolved name.
+            CounterInfo info = pipe.p4info().counterById(proto.getCounterId());
+            if (info == null) {
+                throw new P4PipelineException(
+                        "device returned counter id " + proto.getCounterId()
+                                + " which is not in the bound P4Info; pipeline may have"
+                                + " drifted since bindPipeline");
+            }
+            long idx = proto.hasIndex() ? proto.getIndex().getIndex() : 0L;
+            long packets = proto.getData().getPacketCount();
+            long bytes = proto.getData().getByteCount();
+            return new CounterEntry(info.name(), idx, packets, bytes);
+        }
+
+        private Optional<CounterEntry> collapseToOne(List<CounterEntry> all) {
+            if (all.isEmpty()) return Optional.empty();
+            if (all.size() == 1) return Optional.of(all.get(0));
+            throw new P4OperationException(
+                    "expected at most one entry from counter '" + counterName
                             + "', got " + all.size() + " entries",
                     OperationType.READ,
                     ErrorCode.UNKNOWN,
