@@ -8,6 +8,77 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 (future v1.x work tracked in the Roadmap section)
 
+## [1.5.0] — 2026-05-16
+
+v1.5 is a SemVer-minor addition over v1.4; the v1.4 public surface
+is unchanged. See [`docs/migration-1.4-to-1.5.md`](docs/migration-1.4-to-1.5.md)
+for usage examples of each new method. The v1.5 release completes
+the per-entity-type read surface: the two packet replication engine
+entities — multicast groups and clone sessions — are now readable
+through name-less typed query builders that take controller-assigned
+numeric ids only, the program-agnostic counterpart to the v1.4
+table-driven reads.
+
+### Added
+
+- **`P4Switch.readMulticastGroup()` + `MulticastGroupReadQuery`
+  interface + `MulticastGroupEntry` record** (commit `b893a53`) —
+  name-less typed read of one multicast group programmed on the
+  device's packet replication engine. The query builder offers a
+  `groupId(long)` server-side filter, a non-default
+  `where(Predicate)` client-side filter, and the five terminals
+  (`all` / `one` / `stream` / `allAsync` / `oneAsync`). The entry
+  method takes no `String` argument — the packet replication engine
+  is program-agnostic and multicast groups are addressed by
+  controller-assigned numeric id only. `MulticastGroupEntry` is a
+  three-field record (`multicastGroupId`, an ordered list of
+  `Replica` fan-out slots, opaque controller-defined `Bytes
+  metadata`); the metadata field was added in P4Runtime 1.4.0 and
+  surfaces as empty bytes on older devices.
+- **Shared `Replica` and `BackupReplica` records** (commit
+  `b893a53`) — entity-package records used by both multicast groups
+  and the forthcoming clone sessions. `Replica` carries a nullable
+  `Bytes port`, the per-clone `instance` id, and an ordered list of
+  `BackupReplica` fallback ports. The `port` field is nullable in
+  two cases that v1.5 treats identically: when the P4Runtime
+  `port_kind` oneof is unset, and when the deprecated
+  `egress_port` int32 field is set instead — the same flat-nullable
+  shape `WeightedMember.watchPort` uses for the action-profile-group
+  `watch_kind` oneof shipped in v1.4. `BackupReplica` is a record
+  corresponding to a P4Runtime 1.5.0 spec addition, the first jp4
+  release that surfaces a v1.5-spec-level type; older devices return
+  empty `backup_replicas` lists.
+- **`P4Switch.readCloneSession()` + `CloneSessionReadQuery`
+  interface + `CloneSessionEntry` record** (commit `f709b5a`) —
+  name-less typed read of one clone session, mirroring the
+  multicast-group shape with `sessionId(long)` as the server-side
+  filter. `CloneSessionEntry` is a four-field record carrying the
+  `sessionId`, an ordered list of `Replica` fan-out slots, a
+  `classOfService` widened from the proto's `uint32` to a Java
+  `long` (the same widening convention `groupId`, `memberId`,
+  `multicastGroupId`, and `sessionId` itself already follow on
+  existing entity records), and a `packetLengthBytes` truncation
+  control (mapped to plain `int` because the proto declares it as
+  `int32` rather than `uint32`). A `packetLengthBytes` of `0` means
+  "do not truncate"; a positive value means "truncate cloned
+  payload to this many bytes".
+- **BMv2 end-to-end integration tests for the new PRE read
+  surfaces** (commit `8032783`) — a dedicated
+  `PacketReplicationEngineIntegrationTest` class drives a real
+  `simple_switch_grpc` instance through wire-level Write + Read
+  round-trips for one multicast group and one clone session. Local
+  verification against `simple_switch_grpc` 1.15.1 found that BMv2
+  fully implements both `MulticastGroupEntry` and
+  `CloneSessionEntry` Read RPCs — the opposite of the
+  `RegisterEntry` case from v1.4 where the same BMv2 returns
+  `UNIMPLEMENTED`. The new tests retain a defensive
+  `Assumptions.assumeTrue` skip pattern on `UNIMPLEMENTED` even so,
+  for forward-compatibility against older BMv2 builds or alternate
+  spec-compliant servers that might refuse the read. The fixture
+  `counters_meters_registers_groups.p4` from v1.4 serves these
+  tests as-is — the packet replication engine carries no
+  P4-program declarations, so no fixture extension is needed.
+
 ## [1.4.0] — 2026-05-16
 
 v1.4 is a SemVer-minor addition over v1.3; the v1.3 public surface
@@ -475,10 +546,6 @@ These are tracked for v1.x point releases without committed dates:
 
 - Multi-switch coordination (a `P4Controller` with deliberate fan-out
   / parallelism / error-aggregation semantics).
-- Other entity-type reads — multicast groups and packet
-  replication. (v1.4 delivered counters, meters, registers, and
-  action-profile members and groups alongside the v1.0 table
-  reads; see [`docs/migration-1.3-to-1.4.md`](docs/migration-1.3-to-1.4.md).)
 - `ReadQuery.fields(...)` for server-side or client-side projection;
   the P4Runtime `ReadRequest` spec carries no projection field, so
   this would be a client-side helper. Design TBD; held for a future
@@ -507,7 +574,8 @@ These are tracked for v1.x point releases without committed dates:
   with real noise; this Examples-CI entry remains held only because
   the demos currently run on an interface where lo-noise dominates.
 
-[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/zhh2001/jp4/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/zhh2001/jp4/releases/tag/v1.5.0
 [1.4.0]: https://github.com/zhh2001/jp4/releases/tag/v1.4.0
 [1.3.0]: https://github.com/zhh2001/jp4/releases/tag/v1.3.0
 [1.2.0]: https://github.com/zhh2001/jp4/releases/tag/v1.2.0

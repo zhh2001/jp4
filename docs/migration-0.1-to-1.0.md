@@ -242,13 +242,6 @@ authoritative list; this is the current snapshot.
 - **Multi-switch coordination** — a `P4Controller` with deliberate
   fan-out / parallelism / error-aggregation semantics. v1.0 callers
   compose `List<P4Switch>` themselves.
-- **Other entity-type reads** — multicast groups and packet
-  replication. (v1.4 shipped counters, meters, registers, and
-  action-profile members and groups alongside the v1.0 table
-  reads, with `P4Switch.readCounter` / `readMeter` /
-  `readRegister` / `readActionProfileMember` /
-  `readActionProfileGroup`; see
-  [`migration-1.3-to-1.4.md`](migration-1.3-to-1.4.md).)
 - **`ReadQuery.fields(...)`** — client-side projection on read
   results. Design TBD; held for a future v1.x release.
   (`ReadQuery.where(Predicate)` from the original v1.x roadmap entry
