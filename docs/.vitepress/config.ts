@@ -86,17 +86,6 @@ export default defineConfig({
   // out of the published site.
   srcExclude: ['api-design.md'],
 
-  // Migration-guide CHANGELOG references have been rewritten as
-  // absolute GitHub URLs (so they resolve identically whether read on
-  // the published docs site or in the repository), but the older
-  // top-level guide pages under docs/ still reference repository-relative
-  // paths like ../examples/... that VitePress's strict dead-link checker
-  // cannot resolve. Those refs are rewritten when the guides are
-  // restructured into VitePress idiom in a subsequent change; until then
-  // we accept the warnings rather than fail the build. Once the cleanup
-  // lands this flag is dropped and dead links become a build error again.
-  ignoreDeadLinks: true,
-
   // Last-update timestamps in the footer (from git history) — useful for
   // documentation that pairs with versioned releases.
   lastUpdated: true,
@@ -139,7 +128,48 @@ export default defineConfig({
           { text: 'Migrations',    link: '/migrations/' },
           { text: 'Changelog',     link: '/changelog' },
         ],
-        sidebar: [],   // populated in D4/D5 when guides + cookbook land
+        sidebar: [
+          {
+            text: 'Quick start',
+            items: [
+              { text: '60-second walkthrough', link: '/quickstart' },
+            ],
+          },
+          {
+            text: 'Guides',
+            collapsed: false,
+            items: [
+              { text: 'Getting started',            link: '/guides/getting-started' },
+              { text: 'Connection and arbitration', link: '/guides/connection-and-arbitration' },
+              { text: 'Pipelines',                  link: '/guides/pipeline' },
+              { text: 'Tables',                     link: '/guides/tables' },
+              { text: 'Packet I/O',                 link: '/guides/packet-io' },
+              { text: 'Error handling',             link: '/guides/error-handling' },
+            ],
+          },
+          {
+            text: 'In-depth concepts',
+            collapsed: false,
+            items: [
+              { text: 'P4Runtime spec mapping',     link: '/concepts/p4runtime-spec-mapping' },
+              { text: 'Canonical bytestring',       link: '/concepts/canonical-bytestring' },
+              { text: 'port_kind idiom',            link: '/concepts/port-kind-idiom' },
+              { text: 'Threading model',            link: '/concepts/threading-model' },
+            ],
+          },
+          {
+            text: 'Migration guides',
+            collapsed: true,
+            items: [
+              { text: 'v0.1 → v1.0', link: '/migrations/migration-0.1-to-1.0' },
+              { text: 'v1.0 → v1.1', link: '/migrations/migration-1.0-to-1.1' },
+              { text: 'v1.1 → v1.2', link: '/migrations/migration-1.1-to-1.2' },
+              { text: 'v1.2 → v1.3', link: '/migrations/migration-1.2-to-1.3' },
+              { text: 'v1.3 → v1.4', link: '/migrations/migration-1.3-to-1.4' },
+              { text: 'v1.4 → v1.5', link: '/migrations/migration-1.4-to-1.5' },
+            ],
+          },
+        ],
         outline: {
           level: [2, 3],
           label: 'On this page',
@@ -171,7 +201,48 @@ export default defineConfig({
           { text: '迁移指南', link: '/zh/migrations/' },
           { text: '更新日志', link: '/zh/changelog' },
         ],
-        sidebar: [],   // 在 D4/D5 中填充
+        sidebar: [
+          {
+            text: '快速开始',
+            items: [
+              { text: '60 秒上手', link: '/zh/quickstart' },
+            ],
+          },
+          {
+            text: '指南',
+            collapsed: false,
+            items: [
+              { text: '入门',         link: '/zh/guides/getting-started' },
+              { text: '连接与仲裁',   link: '/zh/guides/connection-and-arbitration' },
+              { text: '流水线',       link: '/zh/guides/pipeline' },
+              { text: '表',           link: '/zh/guides/tables' },
+              { text: '报文 I/O',     link: '/zh/guides/packet-io' },
+              { text: '错误处理',     link: '/zh/guides/error-handling' },
+            ],
+          },
+          {
+            text: '深入概念',
+            collapsed: false,
+            items: [
+              { text: 'P4Runtime 规范映射',         link: '/zh/concepts/p4runtime-spec-mapping' },
+              { text: 'Canonical bytestring 编码',  link: '/zh/concepts/canonical-bytestring' },
+              { text: 'port_kind 习惯',             link: '/zh/concepts/port-kind-idiom' },
+              { text: '线程模型',                   link: '/zh/concepts/threading-model' },
+            ],
+          },
+          {
+            text: '迁移指南',
+            collapsed: true,
+            items: [
+              { text: 'v0.1 → v1.0', link: '/migrations/migration-0.1-to-1.0' },
+              { text: 'v1.0 → v1.1', link: '/migrations/migration-1.0-to-1.1' },
+              { text: 'v1.1 → v1.2', link: '/migrations/migration-1.1-to-1.2' },
+              { text: 'v1.2 → v1.3', link: '/migrations/migration-1.2-to-1.3' },
+              { text: 'v1.3 → v1.4', link: '/migrations/migration-1.3-to-1.4' },
+              { text: 'v1.4 → v1.5', link: '/migrations/migration-1.4-to-1.5' },
+            ],
+          },
+        ],
         outline: {
           level: [2, 3],
           label: '本页目录',

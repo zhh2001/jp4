@@ -1,3 +1,9 @@
+---
+title: Error handling
+description: The four jp4 exception types — P4ConnectionException, P4ArbitrationLost, P4PipelineException, P4OperationException — what each one signals, the known-list messages for schema problems, the WriteResult shape for batch failures, and how async paths surface failures through CompletableFuture.
+keywords: [jp4, P4Runtime, exception, error handling, P4ConnectionException, P4ArbitrationLost, P4PipelineException, P4OperationException, WriteResult]
+---
+
 # Error handling
 
 jp4's exception hierarchy is small and maps cleanly to where things can

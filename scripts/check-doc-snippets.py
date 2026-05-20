@@ -57,14 +57,23 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DOCS_GLOBS = ["README.md", "docs/*.md", "docs/migrations/*.md"]
+DOCS_GLOBS = [
+    "README.md",
+    "docs/*.md",
+    "docs/guides/*.md",
+    "docs/concepts/*.md",
+    "docs/migrations/*.md",
+    "docs/zh/*.md",
+    "docs/zh/guides/*.md",
+    "docs/zh/concepts/*.md",
+]
 
 SNIPPET_RE = re.compile(r"<!--\s*snippet:\s*([^\s#]+)#(\S+)\s*-->")
 ILLUS_RE   = re.compile(r"<!--\s*illustrative(?::\s*(.+?))?\s*-->")
 SKIP_FILE_RE = re.compile(r"<!--\s*doc-lint:\s*skip-file(?:\s*\(([^)]*)\))?\s*-->")
 JAVA_OPEN  = "```java"
 FENCE_END  = "```"
-FOOTER_RE  = re.compile(r"\*Real usage:\s*\[")
+FOOTER_RE  = re.compile(r"\*(Real usage|实际使用):\s*\[")
 
 
 def file_skip_reason(text: str) -> str | None:

@@ -1,3 +1,9 @@
+---
+title: Pipelines
+description: Push a P4 pipeline to a P4Runtime device with bindPipeline, fetch the device's currently installed pipeline with loadPipeline, the P4Info name index that drives every name-based call, and how jp4 surfaces pipeline drift between client and device.
+keywords: [jp4, P4Runtime, P4Info, DeviceConfig, BMv2, bindPipeline, loadPipeline, SetForwardingPipelineConfig, pipeline drift]
+---
+
 # Pipelines
 
 A P4Runtime device runs a P4 program; jp4 calls the install of that
@@ -28,7 +34,7 @@ P4Info p4info = P4Info.fromFile(Path.of("…/myprog.p4info.txtpb"));
 DeviceConfig dc = DeviceConfig.Bmv2.fromFile(Path.of("…/myprog.json"));
 ```
 
-*Real usage: [`simple-loadbalancer`](../examples/simple-loadbalancer/).*
+*Real usage: [`simple-loadbalancer`](https://github.com/zhh2001/jp4/tree/main/examples/simple-loadbalancer/).*
 
 `P4Info.fromFile(...)` auto-detects whether the file is binary protobuf
 or P4Runtime text format. `P4Info.fromBytes(byte[])` accepts the same
@@ -50,7 +56,7 @@ isn't primary, `P4PipelineException` if the device rejects the pipeline.
 sw.bindPipeline(p4info, dc);   // primary only
 ```
 
-*Real usage: [`simple-l2-switch`](../examples/simple-l2-switch/).*
+*Real usage: [`simple-l2-switch`](https://github.com/zhh2001/jp4/tree/main/examples/simple-l2-switch/).*
 
 **`loadPipeline()`** — *pull.* The client fetches whatever pipeline is
 already installed on the device, populates its local P4Info reference,
@@ -63,7 +69,7 @@ without holding primary.
 sw.loadPipeline();   // primary or secondary
 ```
 
-*Real usage: [`network-monitor`](../examples/network-monitor/).*
+*Real usage: [`network-monitor`](https://github.com/zhh2001/jp4/tree/main/examples/network-monitor/).*
 
 Both methods return `P4Switch` so they compose with the connect chain:
 
@@ -80,7 +86,7 @@ try (P4Switch monitor = P4Switch.connect(addr).electionId(...).asSecondary()) {
 }
 ```
 
-*Real usage: [`simple-l2-switch`](../examples/simple-l2-switch/).*
+*Real usage: [`simple-l2-switch`](https://github.com/zhh2001/jp4/tree/main/examples/simple-l2-switch/).*
 
 ## P4Info as a name index
 
@@ -98,7 +104,7 @@ sw.insert(TableEntry.in("MyIngress.ipv4_lpm")    // table name
         .build());
 ```
 
-*Real usage: [`simple-loadbalancer`](../examples/simple-loadbalancer/).*
+*Real usage: [`simple-loadbalancer`](https://github.com/zhh2001/jp4/tree/main/examples/simple-loadbalancer/).*
 
 Misspelled names fail fast at the call site with a known-list error
 message, so a typo never reaches the device:
@@ -134,8 +140,12 @@ for (TableInfo t : p4info.tableNames().stream()
 - **`DeviceConfig.Raw`** is the escape hatch for any other target. The
   device-side parsing is the device's problem; jp4 just ships the bytes.
 
-Both have `fromFile(Path)` factories. v1.x is expected to add
-`DeviceConfig.Tofino` for the SDE; pull-requests welcome.
+Both have `fromFile(Path)` factories. `DeviceConfig` is sealed at
+`Bmv2` and `Raw` today; controllers targeting non-BMv2 devices either
+use `DeviceConfig.Raw` (the bytes-only escape hatch) or feed a
+target-shaped byte payload constructed elsewhere. Adding a typed
+variant for another target is an external contribution path through
+the project's GitHub repository, not an internal commitment.
 
 ## Pipeline drift between client and device
 
@@ -161,7 +171,7 @@ re-`bindPipeline(...)` to recover.
   lookup.
 - [Packet I/O](packet-io.md) — `controller_packet_metadata` declarations
   feed the PacketIn / PacketOut codec.
-- [`examples/simple-loadbalancer/`](../examples/simple-loadbalancer/)
+- [`examples/simple-loadbalancer/`](https://github.com/zhh2001/jp4/tree/main/examples/simple-loadbalancer/)
   shows `bindPipeline` + table operations end-to-end.
-- [`examples/network-monitor/`](../examples/network-monitor/) shows
+- [`examples/network-monitor/`](https://github.com/zhh2001/jp4/tree/main/examples/network-monitor/) shows
   the secondary `loadPipeline()` pattern.

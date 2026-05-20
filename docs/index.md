@@ -10,7 +10,7 @@ hero:
   actions:
     - theme: brand
       text: Get started
-      link: /getting-started
+      link: /quickstart
     - theme: alt
       text: View on GitHub
       link: https://github.com/zhh2001/jp4

@@ -1,3 +1,9 @@
+---
+title: Packet I/O
+description: Three styles for consuming PacketIn (callback, Flow.Publisher, blocking poll), how to send PacketOut, the controller_packet_metadata round trip, and the threading model — single-threaded callback executor, outbound executor, and the deadlock-free callback-calling-send guarantee.
+keywords: [jp4, P4Runtime, PacketIn, PacketOut, StreamChannel, Flow.Publisher, controller_packet_metadata, threading, callback executor]
+---
+
 # Packet I/O
 
 P4Runtime devices send packets to the controller (PacketIn) and accept
@@ -50,7 +56,7 @@ sw.onPacketIn(packet -> {
 });
 ```
 
-*Real usage: [`simple-l2-switch`](../examples/simple-l2-switch/).*
+*Real usage: [`simple-l2-switch`](https://github.com/zhh2001/jp4/tree/main/examples/simple-l2-switch/).*
 
 `packet.metadata(name)` returns the raw `Bytes` for any
 `controller_packet_metadata` field declared on the `packet_in` header.
@@ -82,7 +88,7 @@ sw.packetInStream().subscribe(new Flow.Subscriber<>() {
 });
 ```
 
-*Real usage: [`network-monitor`](../examples/network-monitor/).*
+*Real usage: [`network-monitor`](https://github.com/zhh2001/jp4/tree/main/examples/network-monitor/).*
 
 The full `network-monitor` run (verbatim from a real run) shows a
 primary-injects + Flow-subscriber-tallies cycle, plus a brief secondary
@@ -157,7 +163,7 @@ sw.send(PacketOut.builder()
         .build());
 ```
 
-*Real usage: [`simple-l2-switch`](../examples/simple-l2-switch/).*
+*Real usage: [`simple-l2-switch`](https://github.com/zhh2001/jp4/tree/main/examples/simple-l2-switch/).*
 
 Async variant returns a `CompletableFuture<Void>`:
 
@@ -237,7 +243,7 @@ List<PacketMetadataInfo> out = p4info.packetOutMetadata();
 - [Connection and arbitration](connection-and-arbitration.md) — primary
   vs secondary, and the `loadPipeline()` pre-requisite for secondaries
   observing PacketIn.
-- [`examples/simple-l2-switch/`](../examples/simple-l2-switch/) for
+- [`examples/simple-l2-switch/`](https://github.com/zhh2001/jp4/tree/main/examples/simple-l2-switch/) for
   the `onPacketIn` callback style end-to-end.
-- [`examples/network-monitor/`](../examples/network-monitor/) for the
+- [`examples/network-monitor/`](https://github.com/zhh2001/jp4/tree/main/examples/network-monitor/) for the
   `packetInStream()` Flow.Publisher style.

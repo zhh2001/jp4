@@ -1,3 +1,9 @@
+---
+title: Tables
+description: The full jp4 table API surface — TableEntry builder, the five P4Runtime match kinds (exact / LPM / ternary / range / optional), single insert / modify / delete, batched writes, sync and async reads, server-side and client-side filtering, and the outbound-executor concurrency contract.
+keywords: [jp4, P4Runtime, TableEntry, Match, LPM, ternary, range, optional, batch, ReadQuery, WriteResult]
+---
+
 # Tables
 
 Table operations are most of what a P4Runtime controller does. jp4
@@ -22,7 +28,7 @@ TableEntry e = TableEntry.in("MyIngress.ipv4_lpm")
         .build();
 ```
 
-*Real usage: [`simple-loadbalancer`](../examples/simple-loadbalancer/).*
+*Real usage: [`simple-loadbalancer`](https://github.com/zhh2001/jp4/tree/main/examples/simple-loadbalancer/).*
 
 The builder is name-based — table, match field, action, and param all
 take strings that must match the bound P4Info. Misspellings fail at
@@ -148,7 +154,7 @@ System.out.printf("installed %d routes (allSucceeded=%s)%n",
         r.submitted(), r.allSucceeded());
 ```
 
-*Real usage: [`simple-loadbalancer`](../examples/simple-loadbalancer/).*
+*Real usage: [`simple-loadbalancer`](https://github.com/zhh2001/jp4/tree/main/examples/simple-loadbalancer/).*
 
 The full simple-loadbalancer run (verbatim from a real run) shows the
 `batch().execute()` outcome plus a read-back-modify-readback cycle:
@@ -260,5 +266,5 @@ independent.
   bound P4Info.
 - [Error handling](error-handling.md) — `P4OperationException`,
   `P4PipelineException`, `P4ConnectionException`.
-- [`examples/simple-loadbalancer/`](../examples/simple-loadbalancer/)
+- [`examples/simple-loadbalancer/`](https://github.com/zhh2001/jp4/tree/main/examples/simple-loadbalancer/)
   for batch + read + modify end-to-end.

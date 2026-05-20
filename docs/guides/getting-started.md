@@ -1,3 +1,9 @@
+---
+title: Getting started with jp4
+description: Install jp4 from Maven Central, start a BMv2 device, run the L2 learning-switch example, and write a minimum-viable jp4 controller in Java. The fifteen-minute walkthrough from nothing installed to a working P4Runtime client.
+keywords: [jp4, P4Runtime, Java, getting started, BMv2, controller, Maven Central, simple-l2-switch]
+---
+
 # Getting started
 
 This guide takes you from nothing installed to writing your first jp4
@@ -30,7 +36,7 @@ dependencies {
 
 Or if you prefer to consume jp4 from a checked-out clone (e.g. while
 contributing or tracking `main`), use a Gradle composite build — see how
-the [`examples/`](../examples/) directory wires this up via
+the [`examples/`](https://github.com/zhh2001/jp4/tree/main/examples/) directory wires this up via
 `includeBuild("..")`.
 
 ## Run your first example
@@ -79,7 +85,7 @@ The `simple-l2-switch` example connects to BMv2 as primary, pushes the
 synthetic Ethernet frames. The data-plane table starts empty, so each
 frame misses, BMv2 forwards it to the controller, and the handler
 writes a forwarding entry — that's the `LEARN` line. Read
-[`examples/simple-l2-switch/`](../examples/simple-l2-switch/) for the
+[`examples/simple-l2-switch/`](https://github.com/zhh2001/jp4/tree/main/examples/simple-l2-switch/) for the
 annotated source.
 
 ## Write your own controller — minimum viable

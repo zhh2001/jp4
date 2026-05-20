@@ -1,3 +1,9 @@
+---
+title: Connection and arbitration
+description: How jp4 opens a gRPC channel to a P4Runtime device, arbitrates primary mastership, supports secondary read-only controllers, listens for mastership-change notifications, and re-acquires primary after loss. Includes the auto-reconnect policy and the BMv2 PacketIn-delivery quirk.
+keywords: [jp4, P4Runtime, primary, secondary, mastership, arbitration, election id, ReconnectPolicy, P4ArbitrationLost]
+---
+
 # Connection and arbitration
 
 Every jp4 program starts the same way: open a gRPC channel to a P4Runtime
@@ -32,7 +38,7 @@ try (P4Switch sw = P4Switch.connectAsPrimary("127.0.0.1:50051")
 }
 ```
 
-*Real usage: [`simple-l2-switch`](../examples/simple-l2-switch/).*
+*Real usage: [`simple-l2-switch`](https://github.com/zhh2001/jp4/tree/main/examples/simple-l2-switch/).*
 
 `connectAsPrimary(address)` is shorthand for
 `connect(address).asPrimary()` with default deviceId (0) and a generated
@@ -53,7 +59,7 @@ try (P4Switch sw = P4Switch.connect("127.0.0.1:50051")
 }
 ```
 
-*Real usage: [`network-monitor`](../examples/network-monitor/).*
+*Real usage: [`network-monitor`](https://github.com/zhh2001/jp4/tree/main/examples/network-monitor/).*
 
 `asPrimary()` blocks until the device confirms the arbitration outcome.
 If the device denies primary (because another client already holds a
@@ -82,7 +88,7 @@ try (P4Switch monitor = P4Switch.connect("127.0.0.1:50051")
 }
 ```
 
-*Real usage: [`network-monitor`](../examples/network-monitor/).*
+*Real usage: [`network-monitor`](https://github.com/zhh2001/jp4/tree/main/examples/network-monitor/).*
 
 Two practical notes:
 
@@ -191,5 +197,5 @@ is closed")`.
   actually push and fetch.
 - [Error handling](error-handling.md) — what to do when a connection
   fails, an arbitration is denied, or the device rejects a write.
-- [`examples/network-monitor/`](../examples/network-monitor/) for the
+- [`examples/network-monitor/`](https://github.com/zhh2001/jp4/tree/main/examples/network-monitor/) for the
   full primary + secondary pattern in one JVM.

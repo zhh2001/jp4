@@ -10,7 +10,7 @@ hero:
   actions:
     - theme: brand
       text: 快速开始
-      link: /zh/getting-started
+      link: /zh/quickstart
     - theme: alt
       text: 在 GitHub 上查看
       link: https://github.com/zhh2001/jp4
