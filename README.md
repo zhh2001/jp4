@@ -121,12 +121,12 @@ In-depth guides for each major API surface live under [`docs/`](docs/):
 - [Tables](docs/tables.md) — `TableEntry` builder, all five `Match` kinds, read / write / batch / modify / delete.
 - [Packet I/O](docs/packet-io.md) — three consumption styles (callback / Flow.Publisher / blocking poll), sending PacketOut, controller_packet_metadata.
 - [Error handling](docs/error-handling.md) — the four exception types and when each fires.
-- [Migration guide: v0.1 → v1.0](docs/migration-0.1-to-1.0.md) — API surface changes between v0.1 and v1.0, with before/after examples for callers updating.
-- [Migration guide: v1.0 → v1.1](docs/migration-1.0-to-1.1.md) — usage examples for the methods added in v1.1; SemVer-minor, no breaking changes for v1.0 callers.
-- [Migration guide: v1.1 → v1.2](docs/migration-1.1-to-1.2.md) — usage examples for the packet-ingestion control surface added in v1.2 (DropEvent, onPacketDropped, packetInFilter); SemVer-minor, no breaking changes for v1.1 callers.
-- [Migration guide: v1.2 → v1.3](docs/migration-1.2-to-1.3.md) — usage examples for the stream-message dispatch family added in v1.3 (DigestEvent, IdleTimeoutEvent, onDigest, onIdleTimeout, DigestConfig, enableDigest, TableEntry.idleTimeoutNs); SemVer-minor, no breaking changes for v1.2 callers.
-- [Migration guide: v1.3 → v1.4](docs/migration-1.3-to-1.4.md) — usage examples for the per-entity read APIs added in v1.4 (readCounter, readMeter, readRegister, readActionProfileMember, readActionProfileGroup) with their typed query builders and entity records; SemVer-minor, no breaking changes for v1.3 callers.
-- [Migration guide: v1.4 → v1.5](docs/migration-1.4-to-1.5.md) — usage examples for the packet replication engine read APIs added in v1.5 (readMulticastGroup, readCloneSession) with their typed query builders, shared Replica / BackupReplica records, and the BackupReplica P4Runtime 1.5.0 spec surface; SemVer-minor, no breaking changes for v1.4 callers.
+- [Migration guide: v0.1 → v1.0](docs/migrations/migration-0.1-to-1.0.md) — API surface changes between v0.1 and v1.0, with before/after examples for callers updating.
+- [Migration guide: v1.0 → v1.1](docs/migrations/migration-1.0-to-1.1.md) — usage examples for the methods added in v1.1; SemVer-minor, no breaking changes for v1.0 callers.
+- [Migration guide: v1.1 → v1.2](docs/migrations/migration-1.1-to-1.2.md) — usage examples for the packet-ingestion control surface added in v1.2 (DropEvent, onPacketDropped, packetInFilter); SemVer-minor, no breaking changes for v1.1 callers.
+- [Migration guide: v1.2 → v1.3](docs/migrations/migration-1.2-to-1.3.md) — usage examples for the stream-message dispatch family added in v1.3 (DigestEvent, IdleTimeoutEvent, onDigest, onIdleTimeout, DigestConfig, enableDigest, TableEntry.idleTimeoutNs); SemVer-minor, no breaking changes for v1.2 callers.
+- [Migration guide: v1.3 → v1.4](docs/migrations/migration-1.3-to-1.4.md) — usage examples for the per-entity read APIs added in v1.4 (readCounter, readMeter, readRegister, readActionProfileMember, readActionProfileGroup) with their typed query builders and entity records; SemVer-minor, no breaking changes for v1.3 callers.
+- [Migration guide: v1.4 → v1.5](docs/migrations/migration-1.4-to-1.5.md) — usage examples for the packet replication engine read APIs added in v1.5 (readMulticastGroup, readCloneSession) with their typed query builders, shared Replica / BackupReplica records, and the BackupReplica P4Runtime 1.5.0 spec surface; SemVer-minor, no breaking changes for v1.4 callers.
 
 The Javadoc for the public API is the canonical reference; these guides
 are how-to / tutorial-shaped, not API catalogues.

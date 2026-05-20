@@ -5,7 +5,7 @@
 This guide documents the API surface changes between v0.1 and v1.0,
 with before/after examples for callers updating from v0.1. It is the
 authoritative reference for the v0.1 → v1.0 transition; the
-[CHANGELOG](../CHANGELOG.md) carries the same information in
+[CHANGELOG](https://github.com/zhh2001/jp4/blob/main/CHANGELOG.md) carries the same information in
 release-note form.
 
 The changes split into four categories:
@@ -236,7 +236,7 @@ These do not affect runtime behaviour.
 ## v1.x roadmap
 
 Capabilities deferred to point releases of v1.x. The
-[`CHANGELOG.md`](../CHANGELOG.md) "Roadmap" section is the
+[`CHANGELOG.md`](https://github.com/zhh2001/jp4/blob/main/CHANGELOG.md) "Roadmap" section is the
 authoritative list; this is the current snapshot.
 
 - **Multi-switch coordination** — a `P4Controller` with deliberate

@@ -11,7 +11,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [1.5.0] — 2026-05-16
 
 v1.5 is a SemVer-minor addition over v1.4; the v1.4 public surface
-is unchanged. See [`docs/migration-1.4-to-1.5.md`](docs/migration-1.4-to-1.5.md)
+is unchanged. See [`docs/migrations/migration-1.4-to-1.5.md`](docs/migrations/migration-1.4-to-1.5.md)
 for usage examples of each new method. The v1.5 release completes
 the per-entity-type read surface: the two packet replication engine
 entities — multicast groups and clone sessions — are now readable
@@ -82,7 +82,7 @@ table-driven reads.
 ## [1.4.0] — 2026-05-16
 
 v1.4 is a SemVer-minor addition over v1.3; the v1.3 public surface
-is unchanged. See [`docs/migration-1.3-to-1.4.md`](docs/migration-1.3-to-1.4.md)
+is unchanged. See [`docs/migrations/migration-1.3-to-1.4.md`](docs/migrations/migration-1.3-to-1.4.md)
 for usage examples of each new method. The v1.4 release completes
 the per-entity-type read surface: counter, meter, register,
 action-profile member, and action-profile group cells are now
@@ -199,7 +199,7 @@ shape `ReadQuery` already uses for table reads.
 ## [1.3.0] — 2026-05-14
 
 v1.3 is a SemVer-minor addition over v1.2; the v1.2 public surface
-is unchanged. See [`docs/migration-1.2-to-1.3.md`](docs/migration-1.2-to-1.3.md)
+is unchanged. See [`docs/migrations/migration-1.2-to-1.3.md`](docs/migrations/migration-1.2-to-1.3.md)
 for usage examples of each new method. The v1.3 release completes the
 stream-message dispatch family: a P4Runtime device's inbound
 DigestList and IdleTimeoutNotification arms now have typed event
@@ -296,7 +296,7 @@ real BMv2 device.
 ## [1.2.0] — 2026-05-11
 
 v1.2 is a SemVer-minor addition over v1.1; the v1.1 public surface
-is unchanged. See [`docs/migration-1.1-to-1.2.md`](docs/migration-1.1-to-1.2.md)
+is unchanged. See [`docs/migrations/migration-1.1-to-1.2.md`](docs/migrations/migration-1.1-to-1.2.md)
 for usage examples of each new method. The v1.2 release introduces
 the packet-ingestion control surface: a typed drop event, a listener
 to observe drops, and a pre-fan-out filter to reject inbound packets
@@ -340,7 +340,7 @@ before any sink sees them.
 ## [1.1.0] — 2026-05-09
 
 v1.1 is a SemVer-minor addition over v1.0; the v1.0 public surface
-is unchanged. See [`docs/migration-1.0-to-1.1.md`](docs/migration-1.0-to-1.1.md)
+is unchanged. See [`docs/migrations/migration-1.0-to-1.1.md`](docs/migrations/migration-1.0-to-1.1.md)
 for usage examples of each new method.
 
 ### Added
@@ -388,7 +388,7 @@ for usage examples of each new method.
 ## [1.0.0] — 2026-05-08
 
 v1.0 locks the public API surface; the surface is stable across v1.x
-patches. See [`docs/migration-0.1-to-1.0.md`](docs/migration-0.1-to-1.0.md)
+patches. See [`docs/migrations/migration-0.1-to-1.0.md`](docs/migrations/migration-0.1-to-1.0.md)
 for v0.1 → v1.0 surface changes with before/after examples.
 
 ### Added
@@ -457,7 +457,7 @@ for v0.1 → v1.0 surface changes with before/after examples.
   validation status (what the CI matrix exercises), production-ready
   scope, known limitations and v1.x roadmap.
 - **Migration guide** (commit `8f20b03`) — new
-  [`docs/migration-0.1-to-1.0.md`](docs/migration-0.1-to-1.0.md)
+  [`docs/migrations/migration-0.1-to-1.0.md`](docs/migrations/migration-0.1-to-1.0.md)
   with before/after examples and per-change severity tags for
   callers updating from v0.1.
 

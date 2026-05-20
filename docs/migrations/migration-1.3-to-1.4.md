@@ -5,7 +5,7 @@
 This guide documents the API surface changes between v1.3 and v1.4,
 with usage examples for callers adopting the new methods. It is the
 authoritative reference for the v1.3 → v1.4 transition; the
-[CHANGELOG](../CHANGELOG.md) carries the same information in
+[CHANGELOG](https://github.com/zhh2001/jp4/blob/main/CHANGELOG.md) carries the same information in
 release-note form.
 
 v1.4 is a SemVer-minor addition over v1.3:
@@ -280,7 +280,7 @@ specific P4Runtime servers that adopters should know about.
 
 Capabilities not in v1.4 but tracked for future v1.x point releases
 without committed dates. The canonical list lives in the
-[CHANGELOG Roadmap section](../CHANGELOG.md#roadmap-v1x-candidates);
+[CHANGELOG Roadmap section](https://github.com/zhh2001/jp4/blob/main/CHANGELOG.md#roadmap-v1x-candidates);
 this section is a cross-reference, kept in sync with that file.
 
 - Multi-switch coordination (a `P4Controller` with deliberate

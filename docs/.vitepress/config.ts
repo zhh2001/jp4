@@ -86,13 +86,15 @@ export default defineConfig({
   // out of the published site.
   srcExclude: ['api-design.md'],
 
-  // The pre-VitePress markdown in docs/ (existing guides + migration
-  // guides) contains repository-relative links to CHANGELOG.md and to
-  // example READMEs that VitePress's strict dead-link checker cannot
-  // resolve. D3 / D4 will rewrite those links as the content is
-  // restructured into VitePress idiom; until then we accept the warnings
-  // rather than fail the build. Once the cleanup lands this flag is
-  // dropped and dead links become a build error again.
+  // Migration-guide CHANGELOG references have been rewritten as
+  // absolute GitHub URLs (so they resolve identically whether read on
+  // the published docs site or in the repository), but the older
+  // top-level guide pages under docs/ still reference repository-relative
+  // paths like ../examples/... that VitePress's strict dead-link checker
+  // cannot resolve. Those refs are rewritten when the guides are
+  // restructured into VitePress idiom in a subsequent change; until then
+  // we accept the warnings rather than fail the build. Once the cleanup
+  // lands this flag is dropped and dead links become a build error again.
   ignoreDeadLinks: true,
 
   // Last-update timestamps in the footer (from git history) — useful for

@@ -57,7 +57,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DOCS_GLOBS = ["README.md", "docs/*.md"]
+DOCS_GLOBS = ["README.md", "docs/*.md", "docs/migrations/*.md"]
 
 SNIPPET_RE = re.compile(r"<!--\s*snippet:\s*([^\s#]+)#(\S+)\s*-->")
 ILLUS_RE   = re.compile(r"<!--\s*illustrative(?::\s*(.+?))?\s*-->")
