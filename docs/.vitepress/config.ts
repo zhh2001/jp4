@@ -158,6 +158,39 @@ export default defineConfig({
             ],
           },
           {
+            text: 'Cookbook',
+            collapsed: false,
+            items: [
+              { text: 'L2 learning entry installation',     link: '/cookbook/l2-learning' },
+              { text: 'LPM route table batch installation', link: '/cookbook/lpm-routes' },
+              { text: 'PacketIn from a secondary',          link: '/cookbook/packet-in-secondary' },
+              { text: 'Inspecting multicast groups',        link: '/cookbook/multicast-group' },
+              { text: 'Inspecting clone sessions',          link: '/cookbook/clone-session' },
+              { text: 'Reading entity tables',              link: '/cookbook/entity-reads' },
+            ],
+          },
+          {
+            text: 'Examples',
+            collapsed: false,
+            items: [
+              { text: 'simple-l2-switch',    link: '/examples/simple-l2-switch' },
+              { text: 'simple-loadbalancer', link: '/examples/simple-loadbalancer' },
+              { text: 'network-monitor',     link: '/examples/network-monitor' },
+            ],
+          },
+          {
+            text: 'Troubleshooting',
+            collapsed: true,
+            items: [
+              { text: 'BMv2 register UNIMPLEMENTED',  link: '/troubleshooting/bmv2-register-unimplemented' },
+              { text: 'Read-back bytes mismatch',     link: '/troubleshooting/canonical-bytestring-mismatch' },
+              { text: 'Replica.port is null',         link: '/troubleshooting/replica-port-null' },
+              { text: 'P4ArbitrationLost',            link: '/troubleshooting/arbitration-lost' },
+              { text: 'No pipeline bound',            link: '/troubleshooting/no-pipeline-bound' },
+              { text: 'PacketIn never fires',         link: '/troubleshooting/packet-in-not-firing' },
+            ],
+          },
+          {
             text: 'Migration guides',
             collapsed: true,
             items: [
@@ -228,6 +261,39 @@ export default defineConfig({
               { text: 'Canonical bytestring 编码',  link: '/zh/concepts/canonical-bytestring' },
               { text: 'port_kind 习惯',             link: '/zh/concepts/port-kind-idiom' },
               { text: '线程模型',                   link: '/zh/concepts/threading-model' },
+            ],
+          },
+          {
+            text: 'Cookbook',
+            collapsed: false,
+            items: [
+              { text: 'L2 学习条目安装',         link: '/zh/cookbook/l2-learning' },
+              { text: 'LPM 路由表批量安装',      link: '/zh/cookbook/lpm-routes' },
+              { text: '从从属控制器观察 PacketIn', link: '/zh/cookbook/packet-in-secondary' },
+              { text: '查看组播组状态',          link: '/zh/cookbook/multicast-group' },
+              { text: '查看克隆会话',            link: '/zh/cookbook/clone-session' },
+              { text: '读取实体条目',            link: '/zh/cookbook/entity-reads' },
+            ],
+          },
+          {
+            text: '示例',
+            collapsed: false,
+            items: [
+              { text: 'simple-l2-switch',    link: '/zh/examples/simple-l2-switch' },
+              { text: 'simple-loadbalancer', link: '/zh/examples/simple-loadbalancer' },
+              { text: 'network-monitor',     link: '/zh/examples/network-monitor' },
+            ],
+          },
+          {
+            text: '故障排查',
+            collapsed: true,
+            items: [
+              { text: 'BMv2 register UNIMPLEMENTED', link: '/zh/troubleshooting/bmv2-register-unimplemented' },
+              { text: '读回字节不一致',              link: '/zh/troubleshooting/canonical-bytestring-mismatch' },
+              { text: 'Replica.port 为 null',        link: '/zh/troubleshooting/replica-port-null' },
+              { text: 'P4ArbitrationLost',           link: '/zh/troubleshooting/arbitration-lost' },
+              { text: '流水线未绑定',                link: '/zh/troubleshooting/no-pipeline-bound' },
+              { text: 'PacketIn 从未触发',           link: '/zh/troubleshooting/packet-in-not-firing' },
             ],
           },
           {

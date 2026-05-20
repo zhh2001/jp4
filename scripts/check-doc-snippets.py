@@ -62,10 +62,16 @@ DOCS_GLOBS = [
     "docs/*.md",
     "docs/guides/*.md",
     "docs/concepts/*.md",
+    "docs/cookbook/*.md",
+    "docs/examples/*.md",
+    "docs/troubleshooting/*.md",
     "docs/migrations/*.md",
     "docs/zh/*.md",
     "docs/zh/guides/*.md",
     "docs/zh/concepts/*.md",
+    "docs/zh/cookbook/*.md",
+    "docs/zh/examples/*.md",
+    "docs/zh/troubleshooting/*.md",
 ]
 
 SNIPPET_RE = re.compile(r"<!--\s*snippet:\s*([^\s#]+)#(\S+)\s*-->")
@@ -79,7 +85,7 @@ FOOTER_RE  = re.compile(r"\*(Real usage|实际使用):\s*\[")
 def file_skip_reason(text: str) -> str | None:
     """If the file declares an opt-out marker in its first 5 lines, return the
     reason string (possibly empty). Otherwise return None."""
-    head = text.splitlines()[:5]
+    head = text.splitlines()[:15]
     for line in head:
         m = SKIP_FILE_RE.search(line)
         if m:
