@@ -35,6 +35,13 @@ const DESCRIPTION_ZH = '面向 P4Runtime 的原生 Java 客户端库 —— 连�
  * `pageData.lang`, …); we compute absolute URLs from `SITE_URL` and the page's
  * own routed path.
  */
+// Path prefixes (relative to docs/) that exist only in English — they have
+// no `/zh/` mirror. The migration guides are EN-only by policy: they document
+// a fixed past API delta and are not retranslated each release. Pages under
+// these prefixes get a hreflang triple that omits the zh-CN alternate so
+// search engines don't index a phantom Chinese URL that would 404.
+const EN_ONLY_PREFIXES = ['migrations/']
+
 function pageHead(pageData: any): HeadConfig[] {
   const relPath: string = pageData.relativePath || ''
   // VitePress routes 'foo/index.md' -> 'foo/', 'foo.md' -> 'foo.html'.
@@ -61,13 +68,30 @@ function pageHead(pageData: any): HeadConfig[] {
   const enUrl = SITE_URL + enPath
   const zhUrl = SITE_URL + zhPath
 
+  const isEnOnly = EN_ONLY_PREFIXES.some(p => relPath.startsWith(p))
+
   const tags: HeadConfig[] = [
     ['link', { rel: 'canonical', href: pageAbsoluteUrl }],
     ['link', { rel: 'alternate', hreflang: 'en-US', href: enUrl }],
-    ['link', { rel: 'alternate', hreflang: 'zh-CN', href: zhUrl }],
-    ['link', { rel: 'alternate', hreflang: 'x-default', href: enUrl }],
-    ['meta', { property: 'og:url', content: pageAbsoluteUrl }],
   ]
+  if (!isEnOnly) {
+    tags.push(['link', { rel: 'alternate', hreflang: 'zh-CN', href: zhUrl }])
+  }
+  tags.push(['link', { rel: 'alternate', hreflang: 'x-default', href: enUrl }])
+  tags.push(['meta', { property: 'og:url', content: pageAbsoluteUrl }])
+
+  // Per-page keywords from frontmatter. VitePress maps frontmatter `title`
+  // and `description` to the standard tags automatically, but `keywords:` is
+  // not in its default mapping — without this every page would inherit the
+  // global keywords list from `head:` below, which is not what Constraint A
+  // (per-page unique SEO meta) wants.
+  const frontmatterKeywords = pageData?.frontmatter?.keywords
+  if (frontmatterKeywords) {
+    const content = Array.isArray(frontmatterKeywords)
+      ? frontmatterKeywords.join(', ')
+      : String(frontmatterKeywords)
+    tags.push(['meta', { name: 'keywords', content }])
+  }
 
   // SoftwareSourceCode JSON-LD on the two API landing pages. Search engines
   // surface richer results when the page declares the library's metadata in
@@ -119,10 +143,11 @@ export default defineConfig({
   lastUpdated: true,
 
   // Global head tags: meta tags that are identical across every page.
-  // Per-page canonical / hreflang / og:url are added through transformHead.
+  // Per-page canonical / hreflang / og:url / keywords are added through
+  // transformHead — keywords specifically reads from each page's frontmatter
+  // `keywords:` array.
   head: [
     ['meta', { name: 'theme-color',         content: '#3c8772' }],
-    ['meta', { name: 'keywords',            content: 'jp4, P4Runtime, Java, P4, SDN, BMv2, controller, library' }],
     ['meta', { property: 'og:type',         content: 'website' }],
     ['meta', { property: 'og:site_name',    content: 'jp4' }],
     ['meta', { property: 'og:title',        content: TITLE_EN }],

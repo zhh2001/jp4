@@ -1,3 +1,9 @@
+---
+title: Migration guide — jp4 v1.4 → v1.5
+description: API surface additions in jp4 v1.5 — packet replication engine reads for multicast groups and clone sessions via readMulticastGroup / readCloneSession. Shared Replica / BackupReplica records. BackupReplica is the first P4Runtime 1.5.0 spec-level type in jp4.
+keywords: [jp4, migration guide, v1.4, v1.5, readMulticastGroup, readCloneSession, Replica, BackupReplica, packet replication engine, PRE]
+---
+
 <!-- doc-lint: skip-file (migration guide; code blocks are usage examples for the v1.4 -> v1.5 additive surface, not user-facing best-practice examples) -->
 
 # Migration guide: jp4 v1.4 → v1.5

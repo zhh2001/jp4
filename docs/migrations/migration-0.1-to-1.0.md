@@ -1,3 +1,9 @@
+---
+title: Migration guide — jp4 v0.1 → v1.0
+description: API surface changes between jp4 v0.1 and v1.0 — additive paramInt/paramLong/fromBytes factories, behaviour tightening (toString format, null-rejection on accessors, UncheckedIOException, actionable error messages), and the v1.x roadmap snapshot from the v1.0 cut.
+keywords: [jp4, migration guide, v0.1, v1.0, paramInt, fromBytes, MastershipStatus, UncheckedIOException, null contract]
+---
+
 <!-- doc-lint: skip-file (migration guide; code blocks are before/after pseudocode for the v0.1 -> v1.0 surface changes, not user-facing best-practice examples) -->
 
 # Migration guide: jp4 v0.1 → v1.0

@@ -1,3 +1,9 @@
+---
+title: Migration guide — jp4 v1.1 → v1.2
+description: API surface additions in jp4 v1.2 — packet-ingestion control surface with DropEvent record, onPacketDropped listener for SUBSCRIBER_LAG / QUEUE_FULL / FILTERED drops, and Connector.packetInFilter for pre-fan-out rejection. Zero migration effort.
+keywords: [jp4, migration guide, v1.1, v1.2, DropEvent, onPacketDropped, packetInFilter, PacketIn dispatch, backpressure]
+---
+
 <!-- doc-lint: skip-file (migration guide; code blocks are usage examples for the v1.1 -> v1.2 additive surface, not user-facing best-practice examples) -->
 
 # Migration guide: jp4 v1.1 → v1.2

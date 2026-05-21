@@ -2,6 +2,7 @@
 layout: home
 title: jp4 — Java client library for P4Runtime
 description: jp4 is a native Java client library for P4Runtime. Connect to a P4Runtime-enabled device, push pipelines, read and write table and PRE entries, and send and receive packets through the StreamChannel.
+keywords: [jp4, P4Runtime, Java, P4, SDN, BMv2, controller, library, Maven Central, packet replication engine]
 
 hero:
   name: jp4

@@ -1,3 +1,9 @@
+---
+title: Migration guide — jp4 v1.0 → v1.1
+description: API surface additions in jp4 v1.1 — ReadQuery.where for client-side filtering, Connector.preserveRoleOnReconnect for primary-mandatory HA, and Mac.ZERO constant. Zero migration effort; v1.0 patterns continue to work unchanged.
+keywords: [jp4, migration guide, v1.0, v1.1, ReadQuery.where, preserveRoleOnReconnect, Mac.ZERO, P4ArbitrationLost]
+---
+
 <!-- doc-lint: skip-file (migration guide; code blocks are usage examples for the v1.0 -> v1.1 additive surface, not user-facing best-practice examples) -->
 
 # Migration guide: jp4 v1.0 → v1.1

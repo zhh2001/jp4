@@ -2,6 +2,7 @@
 layout: home
 title: jp4 —— 面向 P4Runtime 的 Java 客户端库
 description: jp4 是一个面向 P4Runtime 的原生 Java 客户端库。连接 P4Runtime 设备、下发 pipeline、读写 table 与 PRE 条目、并通过 StreamChannel 收发数据包。
+keywords: [jp4, P4Runtime, Java, P4, SDN, BMv2, 控制器, 库, Maven Central, 包复制引擎]
 
 hero:
   name: jp4

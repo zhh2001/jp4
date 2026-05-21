@@ -1,3 +1,9 @@
+---
+title: Migration guide — jp4 v1.3 → v1.4
+description: API surface additions in jp4 v1.4 — typed entity reads for counters, meters, registers, action-profile members and groups. Shared query-builder shape across all five families. Includes the BMv2 register-UNIMPLEMENTED and canonical-bytestring limitations.
+keywords: [jp4, migration guide, v1.3, v1.4, readCounter, readMeter, readRegister, action-profile, canonical bytestring, BMv2 UNIMPLEMENTED]
+---
+
 <!-- doc-lint: skip-file (migration guide; code blocks are usage examples for the v1.3 -> v1.4 additive surface, not user-facing best-practice examples) -->
 
 # Migration guide: jp4 v1.3 → v1.4

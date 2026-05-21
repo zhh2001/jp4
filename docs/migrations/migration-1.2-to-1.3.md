@@ -1,3 +1,9 @@
+---
+title: Migration guide — jp4 v1.2 → v1.3
+description: API surface additions in jp4 v1.3 — DigestEvent + onDigest listener, DigestConfig + enableDigest control-plane surface, IdleTimeoutEvent + onIdleTimeout listener, and TableEntry.idleTimeoutNs builder for entry-aging opt-in. Stream-message dispatch family completes.
+keywords: [jp4, migration guide, v1.2, v1.3, DigestEvent, onDigest, DigestConfig, IdleTimeoutEvent, onIdleTimeout, idleTimeoutNs]
+---
+
 <!-- doc-lint: skip-file (migration guide; code blocks are usage examples for the v1.2 -> v1.3 additive surface, not user-facing best-practice examples) -->
 
 # Migration guide: jp4 v1.2 → v1.3
