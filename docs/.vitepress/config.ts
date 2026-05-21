@@ -176,10 +176,10 @@ export default defineConfig({
       description: DESCRIPTION_EN,
       themeConfig: {
         nav: [
-          { text: 'Guide',         link: '/' },
+          { text: 'Guide',         link: '/guides/getting-started' },
           { text: 'API reference', link: '/api/' },
           { text: 'Migrations',    link: '/migrations/' },
-          { text: 'Changelog',     link: '/changelog' },
+          { text: 'Changelog',     link: 'https://github.com/zhh2001/jp4/blob/main/CHANGELOG.md' },
         ],
         sidebar: [
           {
@@ -283,10 +283,10 @@ export default defineConfig({
       description: DESCRIPTION_ZH,
       themeConfig: {
         nav: [
-          { text: '指南',     link: '/zh/' },
+          { text: '指南',     link: '/zh/guides/getting-started' },
           { text: 'API 参考', link: '/zh/api/' },
-          { text: '迁移指南', link: '/zh/migrations/' },
-          { text: '更新日志', link: '/zh/changelog' },
+          { text: '迁移指南', link: '/migrations/' },
+          { text: '更新日志', link: 'https://github.com/zhh2001/jp4/blob/main/CHANGELOG.md' },
         ],
         sidebar: [
           {
