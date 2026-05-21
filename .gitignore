@@ -7,6 +7,12 @@ out/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 
+# Generated Javadoc staged for VitePress public assets (built fresh on every
+# docs-deploy CI run from `./gradlew javadoc`; `npm run docs:javadoc` does
+# the same for local previews). The committed source of truth is the Java
+# code; the HTML tree is reproducible from it.
+docs/public/api/javadoc/
+
 # Node.js dependencies (committed lockfile, not the resolved tree)
 node_modules/
 

@@ -19,6 +19,8 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/docs-deploy.yml'
+      - 'build.gradle.kts'
+      - 'src/**'
   workflow_dispatch:
 
 permissions:
@@ -37,6 +39,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Generate Javadoc
+        run: ./gradlew javadoc
+
+      - name: Stage Javadoc into VitePress public assets
+        run: |
+          mkdir -p docs/public/api/javadoc
+          cp -r build/docs/javadoc/. docs/public/api/javadoc/
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

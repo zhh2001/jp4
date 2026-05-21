@@ -61,13 +61,34 @@ function pageHead(pageData: any): HeadConfig[] {
   const enUrl = SITE_URL + enPath
   const zhUrl = SITE_URL + zhPath
 
-  return [
+  const tags: HeadConfig[] = [
     ['link', { rel: 'canonical', href: pageAbsoluteUrl }],
     ['link', { rel: 'alternate', hreflang: 'en-US', href: enUrl }],
     ['link', { rel: 'alternate', hreflang: 'zh-CN', href: zhUrl }],
     ['link', { rel: 'alternate', hreflang: 'x-default', href: enUrl }],
     ['meta', { property: 'og:url', content: pageAbsoluteUrl }],
   ]
+
+  // SoftwareSourceCode JSON-LD on the two API landing pages. Search engines
+  // surface richer results when the page declares the library's metadata in
+  // schema.org terms; the landing pages are the canonical entry to the
+  // generated Javadoc and the right place for the structured signal.
+  if (relPath === 'api/index.md' || relPath === 'zh/api/index.md') {
+    const jsonLd = {
+      '@context': 'https://schema.org',
+      '@type': 'SoftwareSourceCode',
+      name: 'jp4',
+      description: 'A native Java client library for P4Runtime.',
+      codeRepository: 'https://github.com/zhh2001/jp4',
+      programmingLanguage: 'Java',
+      runtimePlatform: 'Java 21+',
+      license: 'https://www.apache.org/licenses/LICENSE-2.0',
+      url: pageAbsoluteUrl,
+    }
+    tags.push(['script', { type: 'application/ld+json' }, JSON.stringify(jsonLd)])
+  }
+
+  return tags
 }
 
 export default defineConfig({
@@ -84,7 +105,14 @@ export default defineConfig({
   // internal v3 design contract (carries its own `doc-lint: skip-file`
   // marker for the Java-snippet linter); it is not user-facing and stays
   // out of the published site.
-  srcExclude: ['api-design.md'],
+  // `api-design.md` is the internal v3 design contract (carries its own
+  // `doc-lint: skip-file` marker for the Java-snippet linter); it is not
+  // user-facing and stays out of the published site.
+  // `public/api/javadoc/**/*.md` excludes the legal/license markdown files
+  // (dejavufonts.md / jquery.md / jqueryUI.md) that the JDK 21 Javadoc tool
+  // ships alongside its HTML output — without this they get picked up by
+  // VitePress's markdown scanner and leak into the sitemap with wrong URLs.
+  srcExclude: ['api-design.md', 'public/api/javadoc/**/*.md'],
 
   // Last-update timestamps in the footer (from git history) — useful for
   // documentation that pairs with versioned releases.
@@ -202,6 +230,7 @@ export default defineConfig({
               { text: 'v1.4 → v1.5', link: '/migrations/migration-1.4-to-1.5' },
             ],
           },
+          { text: 'API reference', link: '/api/' },
         ],
         outline: {
           level: [2, 3],
@@ -308,6 +337,7 @@ export default defineConfig({
               { text: 'v1.4 → v1.5', link: '/migrations/migration-1.4-to-1.5' },
             ],
           },
+          { text: 'API 参考', link: '/zh/api/' },
         ],
         outline: {
           level: [2, 3],
